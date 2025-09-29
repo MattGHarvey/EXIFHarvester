@@ -1,0 +1,138 @@
+# EXIF Harvester Translation Template
+# Copyright (C) 2024 Matt Harvey
+# This file is distributed under the same license as the EXIF Harvester package.
+msgid ""
+msgstr ""
+"Project-Id-Version: EXIF Harvester 1.0.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-01-01 00:00+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "EXIF Harvester Settings"
+msgstr ""
+
+msgid "EXIF Harvester"
+msgstr ""
+
+msgid "General Settings"
+msgstr ""
+
+msgid "Configure how EXIF Harvester processes your posts."
+msgstr ""
+
+msgid "Enabled Post Types"
+msgstr ""
+
+msgid "Select which post types should have EXIF data automatically processed."
+msgstr ""
+
+msgid "Delete Existing Data on Update"
+msgstr ""
+
+msgid "Delete existing EXIF metadata when posts are updated"
+msgstr ""
+
+msgid "When enabled, existing EXIF metadata will be removed before processing new data on post updates."
+msgstr ""
+
+msgid "Process Featured Images"
+msgstr ""
+
+msgid "Process featured image EXIF data"
+msgstr ""
+
+msgid "Extract EXIF data from the post's featured image."
+msgstr ""
+
+msgid "Process Attached Images"
+msgstr ""
+
+msgid "Process attached image EXIF data"
+msgstr ""
+
+msgid "Extract EXIF data from images attached to the post."
+msgstr ""
+
+msgid "Supported Custom Fields"
+msgstr ""
+
+msgid "The following custom fields will be automatically populated when EXIF data is found:"
+msgstr ""
+
+msgid "EXIF Harvester has been activated! Configure your settings under Settings > EXIF Harvester."
+msgstr ""
+
+msgid "Weather Data Settings"
+msgstr ""
+
+msgid "Configure weather data extraction using the PirateWeather API. Weather data will be retrieved based on GPS coordinates and photo timestamp when available."
+msgstr ""
+
+msgid "Note:"
+msgstr ""
+
+msgid "Weather data requires GPS coordinates and date/time information in the EXIF data. Get your free API key from"
+msgstr ""
+
+msgid "Enable Weather Data"
+msgstr ""
+
+msgid "Enable weather data extraction"
+msgstr ""
+
+msgid "When enabled, weather data will be retrieved for photos with GPS coordinates and timestamps. Requires a PirateWeather API key."
+msgstr ""
+
+msgid "PirateWeather API Key"
+msgstr ""
+
+msgid "Your PirateWeather API key. Get one free at"
+msgstr ""
+
+msgid "This will be used to fetch weather conditions and temperature data based on photo location and time."
+msgstr ""
+
+msgid "API key is configured"
+msgstr ""
+
+msgid "API key required for weather data"
+msgstr ""
+
+msgid "Camera & Technical"
+msgstr ""
+
+msgid "Image Properties"
+msgstr ""
+
+msgid "GPS & Location"
+msgstr ""
+
+msgid "Weather Data"
+msgstr ""
+
+msgid "disabled"
+msgstr ""
+
+msgid "Date & Time"
+msgstr ""
+
+msgid "Content"
+msgstr ""
+
+msgid "Weather Data Enabled:"
+msgstr ""
+
+msgid "Temperature and weather summary will be automatically retrieved for photos with GPS coordinates and timestamps."
+msgstr ""
+
+msgid "Weather Data Configured but Missing API Key:"
+msgstr ""
+
+msgid "Please enter your PirateWeather API key above to enable weather data collection."
+msgstr ""
