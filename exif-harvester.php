@@ -74,6 +74,7 @@ class EXIFHarvester {
         'photo_height',
         'photo_megapixels',
         'photo_width',
+        'seo_description',
         'shutterspeed',
         'temperature',
         'timeOfDayContext',
@@ -136,6 +137,8 @@ class EXIFHarvester {
      */
     private function load_includes() {
         require_once EXIF_HARVESTER_PLUGIN_DIR . 'includes/exif-harvester-functions.php';
+        require_once EXIF_HARVESTER_PLUGIN_DIR . 'includes/exif-seo-meta-descriptions.php';
+        require_once EXIF_HARVESTER_PLUGIN_DIR . 'includes/exif-seo-admin.php';
     }
     
     /**
@@ -172,6 +175,7 @@ class EXIFHarvester {
         
         // Metabox hooks
         add_action('add_meta_boxes', array($this, 'add_exif_metabox'));
+        add_action('add_meta_boxes', array($this, 'add_seo_metabox'));
         
         // Admin notices
         add_action('admin_notices', array($this, 'admin_notices'));
@@ -1581,6 +1585,154 @@ class EXIFHarvester {
     }
     
     /**
+     * Add SEO meta description metabox
+     */
+    public function add_seo_metabox() {
+        $enabled_post_types = $this->settings['enabled_post_types'];
+        
+        foreach ($enabled_post_types as $post_type) {
+            add_meta_box(
+                'exif_harvester_seo_metabox',
+                __('SEO Meta Description', 'exif-harvester'),
+                array($this, 'display_seo_metabox'),
+                $post_type,
+                'side',
+                'default'
+            );
+        }
+    }
+    
+    /**
+     * Display SEO metabox content
+     */
+    public function display_seo_metabox($post) {
+        // Get current SEO description
+        $seo_description = get_post_meta($post->ID, 'seo_description', true);
+        
+        echo '<div id="seo-metabox-content">';
+        
+        if (!empty($seo_description)) {
+            echo '<div class="seo-description-display">';
+            echo '<h4>' . __('Current SEO Description:', 'exif-harvester') . '</h4>';
+            echo '<p style="background: #f7f7f7; padding: 10px; border-left: 4px solid #2271b1; margin: 10px 0;">';
+            echo '<strong>Length:</strong> ' . strlen($seo_description) . ' characters<br>';
+            echo '<strong>Description:</strong> ' . esc_html($seo_description);
+            echo '</p>';
+            
+            if (strlen($seo_description) > 155) {
+                echo '<p style="color: #d63301;"><strong>Warning:</strong> Description is longer than recommended 155 characters.</p>';
+            } else {
+                echo '<p style="color: #00a32a;">✓ Good length for SEO</p>';
+            }
+            echo '</div>';
+        } else {
+            echo '<p class="no-seo-description">' . __('No SEO description generated yet.', 'exif-harvester') . '</p>';
+        }
+        
+        echo '<div class="seo-actions">';
+        if (!empty($seo_description)) {
+            echo '<p><button type="button" id="regenerate-seo-btn" class="button button-secondary" data-post-id="' . esc_attr($post->ID) . '">';
+            echo __('Regenerate SEO Description', 'exif-harvester');
+            echo '</button></p>';
+        } else {
+            echo '<p><button type="button" id="generate-seo-btn" class="button button-primary" data-post-id="' . esc_attr($post->ID) . '">';
+            echo __('Generate SEO Description', 'exif-harvester');
+            echo '</button></p>';
+        }
+        
+        echo '<p class="description">';
+        echo __('Auto-generates an SEO-optimized meta description based on EXIF data, location, weather, and post tags.', 'exif-harvester');
+        echo '</p>';
+        
+        echo '<div id="seo-generation-status" style="display: none;"></div>';
+        echo '</div>';
+        echo '</div>';
+        
+        // Add JavaScript for SEO functionality
+        add_action('admin_footer', array($this, 'seo_metabox_script'));
+    }
+    
+    /**
+     * Output JavaScript for SEO metabox functionality
+     */
+    public function seo_metabox_script() {
+        ?>
+        <script type="text/javascript">
+        jQuery(document).ready(function($) {
+            $('#generate-seo-btn, #regenerate-seo-btn').on('click', function() {
+                var button = $(this);
+                var postId = button.data('post-id');
+                var statusDiv = $('#seo-generation-status');
+                var isRegenerate = button.attr('id') === 'regenerate-seo-btn';
+                
+                // Disable button and show loading
+                button.prop('disabled', true).text(isRegenerate ? '<?php echo esc_js(__('Regenerating...', 'exif-harvester')); ?>' : '<?php echo esc_js(__('Generating...', 'exif-harvester')); ?>');
+                statusDiv.html('<p class="notice notice-info inline" style="margin: 10px 0; padding: 5px;"><strong><?php echo esc_js(__('Generating SEO description...', 'exif-harvester')); ?></strong></p>').show();
+                
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'exif_harvester_generate_single_seo_description',
+                        post_id: postId,
+                        nonce: '<?php echo wp_create_nonce('exif_harvester_seo_admin'); ?>'
+                    },
+                    success: function(response) {
+                        if (response.success && response.data.description) {
+                            var description = response.data.description;
+                            var length = response.data.length;
+                            
+                            // Update the display
+                            var html = '<h4><?php echo esc_js(__('Current SEO Description:', 'exif-harvester')); ?></h4>';
+                            html += '<p style="background: #f7f7f7; padding: 10px; border-left: 4px solid #2271b1; margin: 10px 0;">';
+                            html += '<strong>Length:</strong> ' + length + ' characters<br>';
+                            html += '<strong>Description:</strong> ' + description;
+                            html += '</p>';
+                            
+                            if (length > 155) {
+                                html += '<p style="color: #d63301;"><strong>Warning:</strong> Description is longer than recommended 155 characters.</p>';
+                            } else {
+                                html += '<p style="color: #00a32a;">✓ Good length for SEO</p>';
+                            }
+                            
+                            $('.seo-description-display').remove();
+                            $('.no-seo-description').remove();
+                            $('#seo-metabox-content').prepend('<div class="seo-description-display">' + html + '</div>');
+                            
+                            // Update button
+                            button.attr('id', 'regenerate-seo-btn').removeClass('button-primary').addClass('button-secondary').text('<?php echo esc_js(__('Regenerate SEO Description', 'exif-harvester')); ?>');
+                            
+                            statusDiv.html('<p class="notice notice-success inline" style="margin: 10px 0; padding: 5px;"><strong><?php echo esc_js(__('SEO description generated successfully!', 'exif-harvester')); ?></strong></p>');
+                        } else {
+                            statusDiv.html('<p class="notice notice-error inline" style="margin: 10px 0; padding: 5px;"><strong><?php echo esc_js(__('Error:', 'exif-harvester')); ?></strong> ' + (response.data || '<?php echo esc_js(__('Failed to generate SEO description.', 'exif-harvester')); ?>') + '</p>');
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        statusDiv.html('<p class="notice notice-error inline" style="margin: 10px 0; padding: 5px;"><strong><?php echo esc_js(__('Error:', 'exif-harvester')); ?></strong> <?php echo esc_js(__('Failed to communicate with server.', 'exif-harvester')); ?></p>');
+                        console.log('SEO generation error:', xhr, status, error);
+                    },
+                    complete: function() {
+                        // Re-enable button
+                        button.prop('disabled', false);
+                        if (!button.hasClass('regenerate-seo-btn')) {
+                            button.text('<?php echo esc_js(__('Generate SEO Description', 'exif-harvester')); ?>');
+                        } else {
+                            button.text('<?php echo esc_js(__('Regenerate SEO Description', 'exif-harvester')); ?>');
+                        }
+                        
+                        // Hide status message after 5 seconds
+                        setTimeout(function() {
+                            statusDiv.fadeOut();
+                        }, 5000);
+                    }
+                });
+            });
+        });
+        </script>
+        <?php
+    }
+    
+    /**
      * AJAX handler for saving camera mappings
      */
     public function ajax_save_camera() {
@@ -2313,6 +2465,9 @@ class EXIFHarvester {
                 error_log('EXIF Harvester: Weather API key is empty for post ' . $post_id);
             }
         }
+        
+        // Process SEO meta description after all other data is processed
+        $this->process_seo_meta_description($post_id);
     }
     
     /**
@@ -2385,6 +2540,53 @@ class EXIFHarvester {
             }
         } else {
             error_log('EXIF Harvester: Failed to get GMT offset for post ' . $post_id);
+        }
+    }
+    
+    /**
+     * Process SEO meta description for a post
+     */
+    private function process_seo_meta_description($post_id) {
+        // Skip if already exists (only for automatic processing)
+        $existing_description = get_post_meta($post_id, 'seo_description', true);
+        if (!empty($existing_description)) {
+            error_log('EXIF Harvester: SEO description already exists for post ' . $post_id);
+            return;
+        }
+        
+        // Generate SEO description
+        try {
+            $seo_description = exif_harvester_generate_seo_meta_description($post_id);
+            
+            if (!empty($seo_description)) {
+                $this->add_meta_if_not_exists($post_id, 'seo_description', $seo_description);
+                error_log('EXIF Harvester: SEO description generated for post ' . $post_id . ': ' . $seo_description);
+            } else {
+                error_log('EXIF Harvester: Could not generate SEO description for post ' . $post_id);
+            }
+        } catch (Exception $e) {
+            error_log('EXIF Harvester: Error generating SEO description for post ' . $post_id . ': ' . $e->getMessage());
+        }
+    }
+    
+    /**
+     * Force regenerate SEO meta description for a post (used by manual actions)
+     */
+    public function force_regenerate_seo_description($post_id) {
+        try {
+            $seo_description = exif_harvester_generate_seo_meta_description($post_id);
+            
+            if (!empty($seo_description)) {
+                update_post_meta($post_id, 'seo_description', $seo_description);
+                error_log('EXIF Harvester: SEO description regenerated for post ' . $post_id . ': ' . $seo_description);
+                return $seo_description;
+            } else {
+                error_log('EXIF Harvester: Could not regenerate SEO description for post ' . $post_id);
+                return false;
+            }
+        } catch (Exception $e) {
+            error_log('EXIF Harvester: Error regenerating SEO description for post ' . $post_id . ': ' . $e->getMessage());
+            return false;
         }
     }
     
