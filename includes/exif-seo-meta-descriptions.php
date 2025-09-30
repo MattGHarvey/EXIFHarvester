@@ -160,24 +160,56 @@ function exif_harvester_get_word_variations($word) {
         }
     }
     
-    // Handle common photography/maritime term variations
+    // Handle common photography term variations
     $special_cases = [
+        // Maritime/Water
         'ship' => ['ships', 'boat', 'boats', 'vessel', 'vessels'],
         'ships' => ['ship', 'boat', 'boats', 'vessel', 'vessels'],
         'boat' => ['boats', 'ship', 'ships', 'vessel', 'vessels'],
         'boats' => ['boat', 'ship', 'ships', 'vessel', 'vessels'],
         'ocean' => ['sea', 'water', 'marine'],
         'sea' => ['ocean', 'water', 'marine'],
-        'mountain' => ['mountains', 'peak', 'peaks', 'hill', 'hills'],
-        'mountains' => ['mountain', 'peak', 'peaks', 'hill', 'hills'],
-        'sunset' => ['sunsets', 'golden hour', 'dusk'],
-        'sunrise' => ['sunrises', 'dawn', 'morning'],
-        'landscape' => ['landscapes', 'scenery', 'scenic'],
-        'wildlife' => ['animal', 'animals', 'nature'],
-        'architecture' => ['building', 'buildings', 'structure', 'structures'],
+        
+        // Landscape/Nature
+        'mountain' => ['mountains', 'peak', 'peaks', 'hill', 'hills', 'summit'],
+        'mountains' => ['mountain', 'peak', 'peaks', 'hill', 'hills', 'summit'],
+        'landscape' => ['landscapes', 'scenery', 'scenic', 'vista', 'view'],
+        'landscapes' => ['landscape', 'scenery', 'scenic', 'vista', 'view'],
+        'forest' => ['woods', 'woodland', 'trees', 'grove'],
+        'beach' => ['shore', 'coast', 'coastal', 'shoreline'],
+        'waterfall' => ['falls', 'cascade'],
+        
+        // Wildlife/Animals  
+        'wildlife' => ['animal', 'animals', 'fauna'],
+        'bird' => ['birds', 'avian', 'birding'],
+        'birds' => ['bird', 'avian', 'birding'],
+        
+        // Architecture/Urban
+        'architecture' => ['building', 'buildings', 'structure', 'structures', 'architectural'],
+        'building' => ['buildings', 'architecture', 'structure', 'structures'],
+        'buildings' => ['building', 'architecture', 'structure', 'structures'],
         'street' => ['urban', 'city', 'downtown'],
-        'beach' => ['shore', 'coast', 'coastal'],
-        'forest' => ['woods', 'woodland', 'trees'],
+        'cityscape' => ['skyline', 'urban landscape'],
+        
+        // Photography Styles
+        'portrait' => ['portraits', 'portraiture'],
+        'portraits' => ['portrait', 'portraiture'],
+        'macro' => ['close-up', 'close up', 'detail'],
+        'abstract' => ['abstraction', 'conceptual'],
+        
+        // Time/Light
+        'sunset' => ['sunsets', 'golden hour', 'dusk', 'evening'],
+        'sunrise' => ['sunrises', 'dawn', 'morning'],
+        'night' => ['nighttime', 'evening', 'nocturnal'],
+        
+        // Weather/Atmosphere
+        'storm' => ['storms', 'stormy', 'tempest'],
+        'fog' => ['foggy', 'mist', 'misty'],
+        'snow' => ['snowy', 'winter', 'snowfall'],
+        
+        // Travel/Tourism
+        'travel' => ['tourism', 'destination', 'journey'],
+        'historic' => ['historical', 'heritage', 'vintage'],
     ];
     
     $word_lower = strtolower($word);
@@ -218,6 +250,14 @@ function exif_harvester_get_meta_description_tag_blacklist() {
             // Overly generic descriptors
             'beautiful', 'amazing', 'stunning', 'incredible', 'awesome', 'perfect', 'great', 'nice', 'cool',
             'best', 'good', 'bad', 'new', 'old', 'big', 'small', 'large', 'tiny',
+            
+            // Generic visual terms that lack subject matter specificity
+            'sky', 'blue sky', 'clouds', 'light', 'shadow', 'color', 'colors', 'bright', 'dark',
+            'view', 'scene', 'background', 'foreground', 'detail', 'details', 'texture', 'pattern',
+            
+            // Time-related terms (no SEO value compared to subject matter)
+            'morning', 'afternoon', 'evening', 'night', 'daytime', 'nighttime', 'dawn', 'dusk',
+            'early', 'late', 'midday', 'noon', 'midnight', 'today', 'yesterday', 'weekend',
             
             // Social media related
             'instagram', 'facebook', 'twitter', 'hashtag', 'social', 'viral', 'trending',
@@ -281,52 +321,7 @@ function exif_harvester_is_tag_blacklisted($tag_lower) {
     return false;
 }
 
-/**
- * Check if a tag would be redundant with temporal/time context information
- * @param string $tag_lower Tag name in lowercase
- * @param string $time_context Time context metadata (e.g., "evening", "morning", "afternoon")
- * @return bool True if tag is redundant with time context data
- */
-function exif_harvester_is_temporal_redundant_tag($tag_lower, $time_context) {
-    if (empty($time_context)) {
-        return false; // No time context, so no redundancy
-    }
-    
-    $time_context_lower = strtolower($time_context);
-    
-    // Direct temporal term mappings
-    $temporal_mappings = [
-        // Time of day terms
-        'morning' => ['morning', 'dawn', 'sunrise', 'early morning', 'am'],
-        'afternoon' => ['afternoon', 'midday', 'noon', 'pm'],
-        'evening' => ['evening', 'dusk', 'sunset', 'twilight', 'pm'],
-        'night' => ['night', 'nighttime', 'midnight', 'late night', 'darkness'],
-        
-        // Light condition terms  
-        'golden hour' => ['golden hour', 'golden light', 'warm light', 'sunset', 'sunrise'],
-        'blue hour' => ['blue hour', 'twilight', 'dusk', 'evening'],
-        
-        // Weather-time combinations
-        'stormy' => ['storm', 'stormy', 'thunder', 'lightning'],
-        'foggy' => ['fog', 'foggy', 'mist', 'misty'],
-    ];
-    
-    // Check if tag matches time context directly
-    if (strpos($tag_lower, $time_context_lower) !== false || strpos($time_context_lower, $tag_lower) !== false) {
-        return true;
-    }
-    
-    // Check mapped variations
-    foreach ($temporal_mappings as $base_time => $variations) {
-        if (strpos($time_context_lower, $base_time) !== false || $time_context_lower === $base_time) {
-            if (in_array($tag_lower, $variations)) {
-                return true;
-            }
-        }
-    }
-    
-    return false;
-}
+// Temporal redundancy function removed - no longer using time context for SEO
 
 /**
  * Check if a tag would be redundant with location information
@@ -543,12 +538,11 @@ function exif_harvester_score_tags_by_relevance($post_id, $tags) {
     $city = strtolower(get_post_meta($post_id, 'city', true));
     $state = strtolower(get_post_meta($post_id, 'state', true));
     $country = strtolower(get_post_meta($post_id, 'country', true));
-    $time_context = strtolower(get_post_meta($post_id, 'timeOfDayContext', true));
     $weather = strtolower(get_post_meta($post_id, 'wXSummary', true));
     
     // Combine all searchable text
     $all_text = $title . ' ' . $content . ' ' . $excerpt . ' ' . $location . ' ' . $city . ' ' . $state . ' ' . $country;
-    $metadata_text = $time_context . ' ' . $weather;
+    $metadata_text = $weather; // Only weather, no time context
     
     // Remove tags that are substrings of other tags (less specific tags)
     $filtered_tags = exif_harvester_filter_substring_tags($tags);
@@ -589,13 +583,100 @@ function exif_harvester_score_tags_by_relevance($post_id, $tags) {
             continue; // Skip this tag to avoid repetition
         }
         
-        // Check for temporal redundancy - exclude tags that duplicate time context
-        $temporal_redundant = exif_harvester_is_temporal_redundant_tag($tag_lower, $time_context);
-        if ($temporal_redundant) {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log("EXIF SEO Debug - Post $post_id: Tag '$tag' temporal redundant");
+        // Skip temporal redundancy check - not using time context for SEO
+        
+        // Get user-managed standard bonus terms (fallback to defaults if empty)
+        $high_value_terms = get_option('exif_harvester_seo_standard_terms', [
+            // Photography Genres & Styles (high search volume)
+            'landscape', 'nature', 'wildlife', 'macro', 'portrait', 'documentary', 'street photography',
+            'aerial', 'drone', 'panoramic', 'black and white', 'monochrome', 'HDR', 'long exposure',
+            'night photography', 'astrophotography', 'milky way', 'stars', 'sunrise', 'sunset', 'golden hour',
+            'fine art', 'conceptual', 'abstract', 'minimalism', 'minimalist',
+            
+            // Architecture & Urban (specific search terms)
+            'architecture', 'architectural', 'modern', 'contemporary', 'mid-century modern', 'brutalist',
+            'art deco', 'gothic', 'victorian', 'industrial', 'urban', 'cityscape', 'skyline',
+            'skyscrapers', 'office buildings', 'downtown', 'business district', 'historic district',
+            
+            // Nature & Outdoor Photography
+            'mountains', 'peaks', 'summit', 'valley', 'forest', 'trees', 'wilderness', 'national park',
+            'state park', 'hiking', 'trail', 'waterfall', 'river', 'lake', 'ocean', 'beach', 'coastline',
+            'desert', 'canyon', 'rock formation', 'geological', 'seasonal', 'autumn', 'fall foliage',
+            'spring', 'winter', 'snow', 'ice', 'frozen',
+            
+            // Wildlife & Animals (high interest)
+            'birds', 'bird photography', 'raptors', 'eagles', 'hawks', 'owls', 'waterfowl', 'songbirds',
+            'mammals', 'deer', 'elk', 'bear', 'mountain goat', 'bighorn sheep', 'wildlife refuge',
+            'migration', 'nesting', 'feeding', 'behavior',
+            
+            // Cultural & Historical (tourism/travel searches)
+            'historic', 'heritage', 'landmark', 'monument', 'museum', 'cultural', 'traditional',
+            'archaeological', 'ruins', 'vintage', 'antique', 'restoration', 'preservation',
+            
+            // Events & Activities (people search for these)
+            'festival', 'concert', 'performance', 'sports', 'recreation', 'outdoor recreation',
+            'camping', 'backpacking', 'climbing', 'skiing', 'cycling', 'running', 'marathon',
+            
+            // Artistic & Creative (art buyers/enthusiasts)
+            'art', 'artistic', 'creative', 'design', 'sculpture', 'mural', 'street art', 'graffiti',
+            'installation', 'gallery', 'exhibition', 'studio', 'workshop',
+            
+            // Travel & Tourism (huge search category)
+            'travel', 'tourism', 'destination', 'scenic', 'viewpoint', 'overlook', 'vista',
+            'roadtrip', 'adventure', 'exploration', 'discovery', 'hidden gem', 'local',
+            
+            // Weather & Atmospheric (mood searches)
+            'storm', 'lightning', 'rainbow', 'fog', 'mist', 'dramatic', 'moody', 'atmospheric',
+            'reflection', 'silhouette', 'backlit', 'dramatic lighting',
+            
+            // Seasonal & Holiday (timely searches)
+            'christmas', 'holiday', 'seasonal decorations', 'festival of lights', 'celebration',
+            'memorial day', 'independence day', 'thanksgiving', 'new year'
+        ]);
+        
+        // Tiered bonus system for SEO value with variation support - user manageable
+        $premium_terms = get_option('exif_harvester_seo_premium_terms', ['landscape', 'nature', 'wildlife', 'portrait', 'macro', 'architecture', 'sunset', 'sunrise']);
+        $high_terms = get_option('exif_harvester_seo_high_terms', ['mountain', 'forest', 'waterfall', 'beach', 'cityscape', 'historic', 'travel', 'bird']);
+        
+        // Helper function to check term variations
+        $matches_term_variations = function($tag_lower, $term) {
+            // Direct match
+            if (strpos($tag_lower, $term) !== false) return true;
+            
+            // Check variations
+            $variations = exif_harvester_get_word_variations($term);
+            foreach ($variations as $variation) {
+                if (strpos($tag_lower, strtolower($variation)) !== false) return true;
             }
-            continue; // Skip this tag to avoid repetition
+            
+            // Check if tag contains the term as a word boundary
+            if (preg_match('/\b' . preg_quote($term, '/') . '\b/i', $tag_lower)) return true;
+            
+            return false;
+        };
+        
+        // Premium bonus (15 points) - highest search volume photography terms
+        foreach ($premium_terms as $premium_term) {
+            if ($matches_term_variations($tag_lower, $premium_term)) {
+                $score += 15;
+                break;
+            }
+        }
+        
+        // High value bonus (12 points) - strong search terms  
+        foreach ($high_terms as $high_term) {
+            if ($matches_term_variations($tag_lower, $high_term)) {
+                $score += 12;
+                break;
+            }
+        }
+        
+        // Standard bonus (8 points) - all other valuable photography terms
+        foreach ($high_value_terms as $valuable_term) {
+            if ($matches_term_variations($tag_lower, $valuable_term)) {
+                $score += 8;
+                break;
+            }
         }
         
         // Score based on different content areas (weighted by importance)
@@ -753,11 +834,7 @@ function exif_harvester_generate_seo_meta_description($post_id) {
     $cleaned_location_parts = exif_harvester_clean_redundant_location_parts($location_parts);
     $location_string = implode(', ', array_filter($cleaned_location_parts));
     
-    // Get time context
-    $time_context = get_post_meta($post_id, 'timeOfDayContext', true);
-    if ($time_context && $time_context !== 'Unknown') {
-        $time_context = strtolower($time_context);
-    }
+    // Skip time context - not valuable for SEO compared to tags/location
     
     // Get weather conditions
     $weather = get_post_meta($post_id, 'wXSummary', true);
@@ -776,8 +853,8 @@ function exif_harvester_generate_seo_meta_description($post_id) {
     $relevant_tags = [];
     if (!empty($tags)) {
         $scored_tags = exif_harvester_score_tags_by_relevance($post_id, $tags);
-        // Get top 5 most relevant tags (increased from 3 for better variety)
-        $relevant_tags = array_slice($scored_tags, 0, 5);
+        // Get top 7 most relevant tags for maximum subject matter coverage
+        $relevant_tags = array_slice($scored_tags, 0, 7);
         
         // Debug: Log tag processing for troubleshooting
         if (defined('WP_DEBUG') && WP_DEBUG) {
@@ -823,14 +900,18 @@ function exif_harvester_generate_seo_meta_description($post_id) {
         $variants[] = $desc;
     }
     
-    // Variant 2: Tags + Location (when good tags available)
+    // Variant 2: Tags + Location (when good tags available) - NO TIME CONTEXT
     if (!empty($relevant_tags) && $location_string) {
         $tag_string = implode(' and ', array_slice($relevant_tags, 0, 2));
         $desc = ucfirst($tag_string) . " photography from " . $location_string;
-        // Only add context if we have extra space AND few tags
-        if (count($relevant_tags) < 3 && $time_context && strlen($desc) < 100) {
-            $desc .= " during the " . $time_context;
-        }
+        $desc .= ".";
+        $variants[] = $desc;
+    }
+    
+    // Variant 2.1: Three tags + location (prioritize subject matter)
+    if (count($relevant_tags) >= 3 && $location_string) {
+        $tag_string = implode(', ', array_slice($relevant_tags, 0, 3));
+        $desc = ucfirst($tag_string) . " photography from " . $location_string;
         $desc .= ".";
         $variants[] = $desc;
     }
@@ -849,10 +930,8 @@ function exif_harvester_generate_seo_meta_description($post_id) {
             }
             $desc .= " from " . $location_for_tags;
         }
-        if ($time_context && strlen($desc) < 100) {
-            $desc .= " during the " . $time_context;
-        }
-        if ($weather && strlen($desc) < 120) {
+        // More space available without time context - could add more tags or keep concise
+        if ($weather && strlen($desc) < 140) {
             $desc .= " with " . $weather . " conditions";
         }
         // Skip camera equipment - no SEO value
@@ -877,10 +956,7 @@ function exif_harvester_generate_seo_meta_description($post_id) {
             $desc .= " from " . $location_string;
         }
         
-        // Add context if space allows
-        if ($time_context && strlen($desc) < 100) {
-            $desc .= " during the " . $time_context;
-        }
+        // More space for additional content without time context
         
         $desc .= ".";
         $variants[] = $desc;
@@ -891,54 +967,44 @@ function exif_harvester_generate_seo_meta_description($post_id) {
         }
     }
     
-    // Variant 2.5: Tags-focused with minimal location (high priority)
-    if (!empty($relevant_tags) && ($city || $location_string)) {
-        $tag_string = implode(' and ', array_slice($relevant_tags, 0, 2));
+    // Variant 2.5: More tags with minimal location - MAXIMUM TAG FOCUS
+    if (count($relevant_tags) >= 4) {
+        $tag_string = implode(', ', array_slice($relevant_tags, 0, 4));
         $desc = ucfirst($tag_string) . " photography";
         
-        // Add most concise location available
-        if ($city) {
-            $desc .= " from " . $city;
-        } elseif (strlen($location_string) < 30) {
-            $desc .= " from " . $location_string;
-        }
-        
-        // Add context if space allows
-        if ($time_context && strlen($desc) < 110) {
-            $desc .= " during the " . $time_context;
-        } elseif ($weather && strlen($desc) < 120) {
-            $desc .= " with " . $weather . " conditions";
+        // Add most concise location if space allows
+        if (($city || $state) && strlen($desc) < 130) {
+            $seo_location = exif_harvester_build_seo_location($location, $city, $state, $country, 20);
+            if ($seo_location) {
+                $desc .= " from " . $seo_location;
+            }
         }
         
         $desc .= ".";
         $variants[] = $desc;
-        
-        // Debug: Log variant 2.5 creation
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log("EXIF SEO Debug - Post $post_id: Created Variant 2.5 (Tags-Priority): $desc");
-        }
     }
     
-    // Variant 3: Location + Context (ONLY if no good tags available)
-    if ($location_string && count($relevant_tags) < 2) {
-        $desc = $location_string . " photography";
-        if ($time_context) {
-            $desc .= " during the " . $time_context;
-        }
-        if ($weather && strlen($desc) < 130) {
-            $desc .= " in " . $weather . " conditions";
-        }
+    // Variant 3: Location-first with multiple tags (when location is strong)
+    if ($location_string && count($relevant_tags) >= 3) {
+        $tag_string = implode(', ', array_slice($relevant_tags, 0, 3));
+        $desc = $location_string . " " . $tag_string . " photography";
         $desc .= ".";
         $variants[] = $desc;
     }
         
     
-    // Variant 4: Tag-focused with minimal context (when tags are available)
+    // Variant 4: Enhanced tag-focused with optimal location (more space without time context)
     if (count($relevant_tags) >= 2) {
-        $tag_string = implode(' and ', array_slice($relevant_tags, 0, 3));
+        // Use more tags since we have more space
+        $tag_count = min(4, count($relevant_tags));
+        if ($tag_count >= 3) {
+            $tag_string = implode(', ', array_slice($relevant_tags, 0, $tag_count));
+        } else {
+            $tag_string = implode(' and ', array_slice($relevant_tags, 0, $tag_count));
+        }
         $desc = "Beautiful " . $tag_string . " photography";
-        if (($city || $state) && strlen($desc) < 110) {
-            $seo_location = exif_harvester_build_seo_location($location, $city, $state, $country, 25);
+        if (($city || $state) && strlen($desc) < 120) {
+            $seo_location = exif_harvester_build_seo_location($location, $city, $state, $country, 30);
             if ($seo_location) {
                 $desc .= " from " . $seo_location;
             }
@@ -947,38 +1013,50 @@ function exif_harvester_generate_seo_meta_description($post_id) {
         $variants[] = $desc;
     }
     
-    // Variant 5: Atmospheric/Mood (ONLY when no good tags and we have context)
-    if (count($relevant_tags) < 2 && $weather && $time_context) {
-        $desc = "Captivating " . $time_context . " photography";
-        if ($location_string && strlen($location_string) < 25) {
-            $desc .= " from " . $location_string;
+    // Variant 5: Ultra tag-focused (maximize tag usage without time context)
+    if (count($relevant_tags) >= 5) {
+        $tag_string = implode(', ', array_slice($relevant_tags, 0, 7)); // Use up to 7 tags
+        $desc = "Photography featuring " . $tag_string;
+        if (($city || $state) && strlen($desc) < 140) {
+            $seo_location = exif_harvester_build_seo_location($location, $city, $state, $country, 20);
+            if ($seo_location) {
+                $desc .= " from " . $seo_location;
+            }
         }
-        $desc .= " with " . $weather . " conditions.";
+        $desc .= ".";
         $variants[] = $desc;
     }
     
-    // Variant 7: Tag-heavy fallback (when good tags but limited metadata)
+    // Variant 6: Tag + State focus (prioritize broader geographic reach)
+    if (count($relevant_tags) >= 2 && $state) {
+        $tag_string = implode(' and ', array_slice($relevant_tags, 0, 2));
+        $desc = ucfirst($tag_string) . " photography from " . $state;
+        if (strlen($desc) < 120 && count($relevant_tags) >= 3) {
+            $additional_tag = $relevant_tags[2];
+            $desc = ucfirst($tag_string) . " and " . $additional_tag . " photography from " . $state;
+        }
+        $desc .= ".";
+        $variants[] = $desc;
+    }
+    
+    // Variant 7: Maximum tag utilization - NO TIME/WEATHER CONTEXT
     if (!empty($relevant_tags)) {
-        if (count($relevant_tags) >= 2) {
-            $desc = ucfirst(implode(', ', array_slice($relevant_tags, 0, 3))) . " photography";
+        if (count($relevant_tags) >= 5) {
+            $desc = ucfirst(implode(', ', array_slice($relevant_tags, 0, 5))) . " photography";
+        } elseif (count($relevant_tags) >= 3) {
+            $desc = ucfirst(implode(', ', array_slice($relevant_tags, 0, 4))) . " photography";
+        } elseif (count($relevant_tags) >= 2) {
+            $desc = ucfirst(implode(' and ', array_slice($relevant_tags, 0, 3))) . " photography";
         } else {
             $desc = ucfirst($relevant_tags[0]) . " photography";
         }
         
-        if ($location_string && strlen($desc) < 100) {
-            $seo_location = exif_harvester_build_seo_location($location, $city, $state, $country, 35);
+        if ($location_string && strlen($desc) < 130) {
+            $seo_location = exif_harvester_build_seo_location($location, $city, $state, $country, 40);
             if ($seo_location) {
                 $desc .= " from " . $seo_location;
             }
         }
-        
-        // Prioritize weather and time context over equipment
-        if ($time_context && strlen($desc) < 120) {
-            $desc .= " during the " . $time_context;
-        } elseif ($weather && strlen($desc) < 130) {
-            $desc .= " with " . $weather . " conditions";
-        }
-        // Skip camera equipment - no SEO value
         
         $desc .= ".";
         $variants[] = $desc;
@@ -1047,8 +1125,8 @@ function exif_harvester_generate_seo_meta_description($post_id) {
         // Extra bonus for city + state combo (ideal for local SEO)
         if ($city && $state && strpos($variant, $city) !== false && strpos($variant, $state) !== false) $score += 2;
         
-        if ($weather && strpos($variant, $weather) !== false) $score += 0.5; // Minimal weight for weather
-        if (strpos($variant, $time_context) !== false) $score += 0.5; // Minimal weight for time
+        // Minimal weather scoring only (no time context at all)
+        if ($weather && strpos($variant, $weather) !== false) $score += 0.3; // Reduced from 0.5
         // Removed camera scoring - no SEO value
         
         // Combination bonuses - prioritize tags heavily

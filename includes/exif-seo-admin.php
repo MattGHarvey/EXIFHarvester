@@ -208,6 +208,124 @@ function exif_harvester_render_seo_admin_page() {
             </div>
         </div>
         
+        <!-- SEO Bonus Terms Management -->
+        <div class="bonus-terms-card" style="background: #fff; border: 1px solid #c3c4c7; padding: 20px; border-radius: 4px; margin-bottom: 20px;">
+            <h2 style="margin: 0 0 15px 0;">🏆 SEO Bonus Terms Management</h2>
+            <p style="color: #666; margin-bottom: 20px;">
+                Manage photography terms that receive bonus points in SEO descriptions. Higher-scoring terms are more likely to be included.
+            </p>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
+                <!-- Premium Terms -->
+                <div style="border: 1px solid #ddd; padding: 15px; border-radius: 4px;">
+                    <h4 style="margin: 0 0 10px 0; color: #d63384;">Premium Terms (+15 points)</h4>
+                    <p style="font-size: 13px; color: #666; margin-bottom: 10px;">Highest priority photography terms</p>
+                    <form method="post" style="margin-bottom: 15px;">
+                        <?php wp_nonce_field('exif_harvester_seo_admin'); ?>
+                        <input type="text" name="new_premium_term" placeholder="e.g., landscape" style="width: 100%; margin-bottom: 8px;" />
+                        <button type="submit" name="action" value="add_premium_term" class="button button-small" style="width: 100%;">Add Premium Term</button>
+                    </form>
+                    
+                    <div style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 8px; background: #fafafa;">
+                        <?php
+                        $premium_terms = get_option('exif_harvester_seo_premium_terms', ['landscape', 'nature', 'wildlife', 'portrait', 'macro', 'architecture', 'sunset', 'sunrise']);
+                        if (!empty($premium_terms)) {
+                            foreach ($premium_terms as $term) {
+                                echo '<div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid #eee;">';
+                                echo '<span style="font-size: 13px;">' . esc_html($term) . '</span>';
+                                echo '<form method="post" style="margin: 0;">';
+                                wp_nonce_field('exif_harvester_seo_admin');
+                                echo '<input type="hidden" name="term_to_remove" value="' . esc_attr($term) . '" />';
+                                echo '<button type="submit" name="action" value="remove_premium_term" class="button button-link-delete" style="font-size: 11px; padding: 2px 6px;">×</button>';
+                                echo '</form>';
+                                echo '</div>';
+                            }
+                        } else {
+                            echo '<p style="color: #666; font-style: italic; font-size: 12px;">No premium terms yet.</p>';
+                        }
+                        ?>
+                    </div>
+                </div>
+                
+                <!-- High Value Terms -->
+                <div style="border: 1px solid #ddd; padding: 15px; border-radius: 4px;">
+                    <h4 style="margin: 0 0 10px 0; color: #fd7e14;">High Value Terms (+12 points)</h4>
+                    <p style="font-size: 13px; color: #666; margin-bottom: 10px;">Strong photography terms</p>
+                    <form method="post" style="margin-bottom: 15px;">
+                        <?php wp_nonce_field('exif_harvester_seo_admin'); ?>
+                        <input type="text" name="new_high_term" placeholder="e.g., mountains" style="width: 100%; margin-bottom: 8px;" />
+                        <button type="submit" name="action" value="add_high_term" class="button button-small" style="width: 100%;">Add High Term</button>
+                    </form>
+                    
+                    <div style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 8px; background: #fafafa;">
+                        <?php
+                        $high_terms = get_option('exif_harvester_seo_high_terms', ['mountain', 'forest', 'waterfall', 'beach', 'cityscape', 'historic', 'travel', 'bird']);
+                        if (!empty($high_terms)) {
+                            foreach ($high_terms as $term) {
+                                echo '<div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid #eee;">';
+                                echo '<span style="font-size: 13px;">' . esc_html($term) . '</span>';
+                                echo '<form method="post" style="margin: 0;">';
+                                wp_nonce_field('exif_harvester_seo_admin');
+                                echo '<input type="hidden" name="term_to_remove" value="' . esc_attr($term) . '" />';
+                                echo '<button type="submit" name="action" value="remove_high_term" class="button button-link-delete" style="font-size: 11px; padding: 2px 6px;">×</button>';
+                                echo '</form>';
+                                echo '</div>';
+                            }
+                        } else {
+                            echo '<p style="color: #666; font-style: italic; font-size: 12px;">No high value terms yet.</p>';
+                        }
+                        ?>
+                    </div>
+                </div>
+                
+                <!-- Standard Terms -->
+                <div style="border: 1px solid #ddd; padding: 15px; border-radius: 4px;">
+                    <h4 style="margin: 0 0 10px 0; color: #198754;">Standard Terms (+8 points)</h4>
+                    <p style="font-size: 13px; color: #666; margin-bottom: 10px;">Good photography terms</p>
+                    <form method="post" style="margin-bottom: 15px;">
+                        <?php wp_nonce_field('exif_harvester_seo_admin'); ?>
+                        <input type="text" name="new_standard_term" placeholder="e.g., abstract" style="width: 100%; margin-bottom: 8px;" />
+                        <button type="submit" name="action" value="add_standard_term" class="button button-small" style="width: 100%;">Add Standard Term</button>
+                    </form>
+                    
+                    <div style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 8px; background: #fafafa;">
+                        <?php
+                        $standard_terms = get_option('exif_harvester_seo_standard_terms', ['abstract', 'minimalism', 'art', 'creative', 'urban', 'street art']);
+                        if (!empty($standard_terms)) {
+                            echo '<div style="font-size: 12px; color: #666; margin-bottom: 8px;">' . count($standard_terms) . ' terms (showing first 20)</div>';
+                            $displayed_terms = array_slice($standard_terms, 0, 20);
+                            foreach ($displayed_terms as $term) {
+                                echo '<div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid #eee;">';
+                                echo '<span style="font-size: 13px;">' . esc_html($term) . '</span>';
+                                echo '<form method="post" style="margin: 0;">';
+                                wp_nonce_field('exif_harvester_seo_admin');
+                                echo '<input type="hidden" name="term_to_remove" value="' . esc_attr($term) . '" />';
+                                echo '<button type="submit" name="action" value="remove_standard_term" class="button button-link-delete" style="font-size: 11px; padding: 2px 6px;">×</button>';
+                                echo '</form>';
+                                echo '</div>';
+                            }
+                            if (count($standard_terms) > 20) {
+                                echo '<p style="font-size: 11px; color: #999; margin-top: 8px;">... and ' . (count($standard_terms) - 20) . ' more</p>';
+                            }
+                        } else {
+                            echo '<p style="color: #666; font-style: italic; font-size: 12px;">No standard terms yet.</p>';
+                        }
+                        ?>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="margin-top: 15px; padding: 10px; background: #f0f8ff; border: 1px solid #0073aa; border-radius: 4px;">
+                <strong>💡 Tips:</strong>
+                <ul style="margin: 8px 0 0 20px; font-size: 13px;">
+                    <li>Premium terms get highest priority in SEO descriptions</li>
+                    <li>Terms automatically match variations (e.g., "landscape" matches "landscapes")</li>
+                    <li>Focus on terms your audience actually searches for</li>
+                    <li>Remove or demote terms that aren't working for your niche</li>
+                </ul>
+            </div>
+        </div>
+        
         <!-- Bulk Actions -->
         <div class="bulk-actions-card" style="background: #fff; border: 1px solid #c3c4c7; padding: 20px; border-radius: 4px; margin-bottom: 20px;">
             <h2 style="margin: 0 0 15px 0;">🚀 Bulk Actions</h2>
@@ -514,6 +632,9 @@ function exif_harvester_handle_seo_bulk_actions() {
             $results['processed'], 
             $results['generated']
         );
+    } elseif (strpos($action, '_term') !== false) {
+        // Handle bonus term management actions
+        return exif_harvester_handle_bonus_term_actions($action);
     }
     
     return false;
@@ -655,7 +776,128 @@ function exif_harvester_get_seo_statistics() {
     );
 }
 
+/**
+ * Handle bonus term management actions
+ */
+function exif_harvester_handle_bonus_term_actions($action) {
+    switch ($action) {
+        case 'add_premium_term':
+            if (!empty($_POST['new_premium_term'])) {
+                $term = sanitize_text_field(trim($_POST['new_premium_term']));
+                $terms = get_option('exif_harvester_seo_premium_terms', []);
+                if (!in_array($term, $terms)) {
+                    $terms[] = $term;
+                    update_option('exif_harvester_seo_premium_terms', $terms);
+                    return "Added '{$term}' to premium terms (+15 points).";
+                } else {
+                    return "'{$term}' is already in premium terms.";
+                }
+            }
+            break;
+            
+        case 'remove_premium_term':
+            if (!empty($_POST['term_to_remove'])) {
+                $term = sanitize_text_field($_POST['term_to_remove']);
+                $terms = get_option('exif_harvester_seo_premium_terms', []);
+                $key = array_search($term, $terms);
+                if ($key !== false) {
+                    unset($terms[$key]);
+                    $terms = array_values($terms); // Reindex array
+                    update_option('exif_harvester_seo_premium_terms', $terms);
+                    return "Removed '{$term}' from premium terms.";
+                }
+            }
+            break;
+            
+        case 'add_high_term':
+            if (!empty($_POST['new_high_term'])) {
+                $term = sanitize_text_field(trim($_POST['new_high_term']));
+                $terms = get_option('exif_harvester_seo_high_terms', []);
+                if (!in_array($term, $terms)) {
+                    $terms[] = $term;
+                    update_option('exif_harvester_seo_high_terms', $terms);
+                    return "Added '{$term}' to high value terms (+12 points).";
+                } else {
+                    return "'{$term}' is already in high value terms.";
+                }
+            }
+            break;
+            
+        case 'remove_high_term':
+            if (!empty($_POST['term_to_remove'])) {
+                $term = sanitize_text_field($_POST['term_to_remove']);
+                $terms = get_option('exif_harvester_seo_high_terms', []);
+                $key = array_search($term, $terms);
+                if ($key !== false) {
+                    unset($terms[$key]);
+                    $terms = array_values($terms); // Reindex array
+                    update_option('exif_harvester_seo_high_terms', $terms);
+                    return "Removed '{$term}' from high value terms.";
+                }
+            }
+            break;
+            
+        case 'add_standard_term':
+            if (!empty($_POST['new_standard_term'])) {
+                $term = sanitize_text_field(trim($_POST['new_standard_term']));
+                $terms = get_option('exif_harvester_seo_standard_terms', []);
+                if (!in_array($term, $terms)) {
+                    $terms[] = $term;
+                    update_option('exif_harvester_seo_standard_terms', $terms);
+                    return "Added '{$term}' to standard terms (+8 points).";
+                } else {
+                    return "'{$term}' is already in standard terms.";
+                }
+            }
+            break;
+            
+        case 'remove_standard_term':
+            if (!empty($_POST['term_to_remove'])) {
+                $term = sanitize_text_field($_POST['term_to_remove']);
+                $terms = get_option('exif_harvester_seo_standard_terms', []);
+                $key = array_search($term, $terms);
+                if ($key !== false) {
+                    unset($terms[$key]);
+                    $terms = array_values($terms); // Reindex array
+                    update_option('exif_harvester_seo_standard_terms', $terms);
+                    return "Removed '{$term}' from standard terms.";
+                }
+            }
+            break;
+    }
+    
+    return false;
+}
+
+/**
+ * Initialize default SEO bonus terms if not already set
+ */
+function exif_harvester_init_default_seo_bonus_terms() {
+    // Initialize premium terms if not set
+    if (!get_option('exif_harvester_seo_premium_terms')) {
+        update_option('exif_harvester_seo_premium_terms', [
+            'landscape', 'nature', 'wildlife', 'portrait', 'macro', 'architecture', 'sunset', 'sunrise'
+        ]);
+    }
+    
+    // Initialize high value terms if not set
+    if (!get_option('exif_harvester_seo_high_terms')) {
+        update_option('exif_harvester_seo_high_terms', [
+            'mountain', 'forest', 'waterfall', 'beach', 'cityscape', 'historic', 'travel', 'bird'
+        ]);
+    }
+    
+    // Initialize standard terms if not set
+    if (!get_option('exif_harvester_seo_standard_terms')) {
+        update_option('exif_harvester_seo_standard_terms', [
+            'abstract', 'minimalism', 'art', 'creative', 'urban', 'street art', 'modern', 'contemporary',
+            'industrial', 'design', 'fine art', 'conceptual', 'black and white', 'monochrome'
+        ]);
+    }
+}
+
 // Initialize admin hooks when WordPress is loaded
 if (function_exists('add_action') && is_admin()) {
     exif_harvester_init_seo_admin();
+    add_action('admin_init', 'exif_harvester_init_default_seo_bonus_terms');
 }
