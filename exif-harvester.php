@@ -3,7 +3,7 @@
  * Plugin Name: EXIF Harvester
  * Plugin URI: https://www.75centralphotography.com
  * Description: Automatically extracts and stores EXIF metadata from images when posts are saved or edited. Stores data in custom fields for camera, lens, GPS coordinates, date/time information, and more.
- * Version: 1.0.0
+ * Version: 1.2.0
  * Author: Matt Harvey
  * Author URI: https://www.75centralphotography.com
  * License: GPL v2 or later
@@ -185,6 +185,9 @@ class EXIFHarvester {
         
         // Register custom taxonomies
         add_action('init', array($this, 'register_place_taxonomy'));
+        
+        // Sync place taxonomy to location metadata
+        add_action('set_object_terms', array($this, 'sync_place_taxonomy_to_metadata'), 10, 6);
     }
     
     /**
@@ -1665,9 +1668,18 @@ class EXIFHarvester {
                 var statusDiv = $('#seo-generation-status');
                 var isRegenerate = button.attr('id') === 'regenerate-seo-btn';
                 
+                // Debug logging
+                console.log('EXIF SEO Debug: Button clicked, post ID:', postId, 'isRegenerate:', isRegenerate);
+                
                 // Disable button and show loading
                 button.prop('disabled', true).text(isRegenerate ? '<?php echo esc_js(__('Regenerating...', 'exif-harvester')); ?>' : '<?php echo esc_js(__('Generating...', 'exif-harvester')); ?>');
                 statusDiv.html('<p class="notice notice-info inline" style="margin: 10px 0; padding: 5px;"><strong><?php echo esc_js(__('Generating SEO description...', 'exif-harvester')); ?></strong></p>').show();
+                
+                console.log('EXIF SEO Debug: Making AJAX call with data:', {
+                    action: 'exif_harvester_generate_single_seo_description',
+                    post_id: postId,
+                    nonce: '<?php echo wp_create_nonce('exif_harvester_seo_admin'); ?>'
+                });
                 
                 $.ajax({
                     url: ajaxurl,
@@ -2795,6 +2807,68 @@ class EXIFHarvester {
     private function add_meta_if_not_exists($post_id, $key, $value) {
         if (!metadata_exists('post', $post_id, $key)) {
             add_post_meta($post_id, $key, $value);
+        }
+    }
+    
+    /**
+     * Sync place taxonomy data to location metadata fields
+     * Triggered when place terms are assigned to a post
+     */
+    public function sync_place_taxonomy_to_metadata($object_id, $terms, $tt_ids, $taxonomy, $append, $old_tt_ids) {
+        // Only process place taxonomy changes for posts
+        if ($taxonomy !== 'place' || get_post_type($object_id) !== 'post') {
+            return;
+        }
+        
+        // Skip if no terms assigned
+        if (empty($terms)) {
+            // Clear location metadata if no place terms (but only if not from EXIF)
+            // Don't overwrite EXIF-derived location data
+            return;
+        }
+        
+        // Get the first place term (assuming one place per post)
+        $place_terms = wp_get_post_terms($object_id, 'place', array('fields' => 'names'));
+        if (empty($place_terms)) {
+            return;
+        }
+        
+        $place_name = $place_terms[0];
+        
+        // Parse the place name (format: "Location, City, State, Country")
+        $parts = array_map('trim', explode(',', $place_name));
+        
+        // Extract components with fallbacks
+        $location = isset($parts[0]) && !empty($parts[0]) ? $parts[0] : '';
+        $city = isset($parts[1]) && !empty($parts[1]) ? $parts[1] : '';
+        $state = isset($parts[2]) && !empty($parts[2]) ? $parts[2] : '';
+        $country = isset($parts[3]) && !empty($parts[3]) ? $parts[3] : '';
+        
+        // Update metadata fields (only if they don't already exist from EXIF data)
+        if (!get_post_meta($object_id, 'location', true) && $location) {
+            update_post_meta($object_id, 'location', $location);
+        }
+        if (!get_post_meta($object_id, 'city', true) && $city) {
+            update_post_meta($object_id, 'city', $city);
+        }
+        if (!get_post_meta($object_id, 'state', true) && $state) {
+            update_post_meta($object_id, 'state', $state);
+        }
+        if (!get_post_meta($object_id, 'country', true) && $country) {
+            update_post_meta($object_id, 'country', $country);
+        }
+        
+        // Debug logging
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log("EXIF Harvester: Synced place taxonomy to metadata for post $object_id - Location: $location, City: $city, State: $state, Country: $country");
+        }
+        
+        // Regenerate SEO description with new location data
+        if (function_exists('exif_harvester_generate_seo_meta_description')) {
+            $seo_description = exif_harvester_generate_seo_meta_description($object_id);
+            if ($seo_description) {
+                update_post_meta($object_id, 'seo_description', $seo_description);
+            }
         }
     }
     

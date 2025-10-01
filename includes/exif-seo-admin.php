@@ -26,8 +26,14 @@ function exif_harvester_add_seo_admin_menu() {
  * Initialize SEO admin interface hooks
  */
 function exif_harvester_init_seo_admin() {
+    // ALWAYS log SEO admin initialization
+    error_log('EXIF Harvester SEO: exif_harvester_init_seo_admin() called - registering AJAX handlers');
+    
     add_action('admin_menu', 'exif_harvester_add_seo_admin_menu', 11); // Priority 11 to ensure it comes after main menu
     add_action('wp_ajax_exif_harvester_generate_single_seo_description', 'exif_harvester_ajax_generate_single_seo_description');
+    
+    // Log that AJAX handler was registered
+    error_log('EXIF Harvester SEO: AJAX handler wp_ajax_exif_harvester_generate_single_seo_description registered');
 }
 
 /**
@@ -644,12 +650,17 @@ function exif_harvester_handle_seo_bulk_actions() {
  * AJAX handler for generating single SEO description
  */
 function exif_harvester_ajax_generate_single_seo_description() {
+    // ALWAYS log AJAX handler entry
+    error_log('EXIF Harvester SEO: AJAX handler called - exif_harvester_ajax_generate_single_seo_description()');
+    
     // Verify nonce
     if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'exif_harvester_seo_admin')) {
+        error_log('EXIF Harvester SEO: AJAX nonce verification failed');
         wp_die('Security check failed');
     }
     
     $post_id = intval($_POST['post_id']);
+    error_log('EXIF Harvester SEO: AJAX processing post ID ' . $post_id);
     
     if (!current_user_can('edit_post', $post_id)) {
         wp_die('Permission denied');
@@ -897,7 +908,20 @@ function exif_harvester_init_default_seo_bonus_terms() {
 }
 
 // Initialize admin hooks when WordPress is loaded
-if (function_exists('add_action') && is_admin()) {
-    exif_harvester_init_seo_admin();
-    add_action('admin_init', 'exif_harvester_init_default_seo_bonus_terms');
+if (function_exists('add_action')) {
+    // Register AJAX handlers early for all admin requests (including AJAX)
+    if (is_admin()) {
+        error_log('EXIF Harvester SEO: is_admin() is true, initializing SEO admin');
+        exif_harvester_init_seo_admin();
+        add_action('admin_init', 'exif_harvester_init_default_seo_bonus_terms');
+    }
+    
+    // Also register AJAX handlers on init hook for better compatibility
+    add_action('init', function() {
+        error_log('EXIF Harvester SEO: init hook fired, ensuring AJAX handlers are registered');
+        if (is_admin() && defined('DOING_AJAX') && DOING_AJAX) {
+            error_log('EXIF Harvester SEO: This is an AJAX request, re-registering handlers');
+            add_action('wp_ajax_exif_harvester_generate_single_seo_description', 'exif_harvester_ajax_generate_single_seo_description');
+        }
+    });
 }
