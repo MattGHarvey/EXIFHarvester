@@ -2152,9 +2152,12 @@ class EXIFHarvester {
             }
         }
         
-        // Delete weather retry metadata
+        // Delete weather metadata
         delete_post_meta($post_id, '_weather_last_attempt');
         delete_post_meta($post_id, '_weather_last_failure');
+        delete_post_meta($post_id, '_weather_last_success');
+        delete_post_meta($post_id, '_weather_gps_used');
+        delete_post_meta($post_id, '_weather_datetime_used');
         
         // Clear place taxonomy terms
         if (taxonomy_exists('place')) {
@@ -2354,6 +2357,34 @@ class EXIFHarvester {
                 error_log('EXIF Harvester: No EXIF data found to process for post ' . $post_id);
             }
         }
+        
+        // ALWAYS process location-based data (weather, GMT offset, etc.) regardless of EXIF data availability
+        // This ensures weather processing works even when EXIF data is missing but GPS/datetime exists in metadata
+        
+        // Ensure GMT offset is calculated after both GPS and datetime processing
+        $this->ensure_gmt_offset($post_id);
+        
+        // Process weather data if enabled and API key is available
+        error_log('EXIF Harvester: WEATHER CHECK (post-EXIF) - Enabled: ' . ($this->settings['weather_api_enabled'] ? 'yes' : 'no') . ', API Key: ' . (empty($this->settings['pirate_weather_api_key']) ? 'empty' : 'configured') . ' for post ' . $post_id);
+        
+        if ($this->settings['weather_api_enabled'] && !empty($this->settings['pirate_weather_api_key'])) {
+            try {
+                error_log('EXIF Harvester: Calling process_weather_data (post-EXIF) for post ' . $post_id);
+                $this->process_weather_data($post_id);
+            } catch (Exception $e) {
+                error_log('EXIF Harvester: Error processing weather data (post-EXIF) for post ' . $post_id . ': ' . $e->getMessage());
+            }
+        } else {
+            if (!$this->settings['weather_api_enabled']) {
+                error_log('EXIF Harvester: Weather API is disabled (post-EXIF) for post ' . $post_id);
+            }
+            if (empty($this->settings['pirate_weather_api_key'])) {
+                error_log('EXIF Harvester: Weather API key is empty (post-EXIF) for post ' . $post_id);
+            }
+        }
+        
+        // Process SEO meta description after all other data is processed
+        $this->process_seo_meta_description($post_id);
         
         // Always try to process caption from post content
         $this->process_caption($post_id);
@@ -2606,20 +2637,16 @@ class EXIFHarvester {
      * Process weather data for a post
      */
     private function process_weather_data($post_id) {
-        // Prevent multiple weather calls in the same request
-        static $processed_posts = array();
-        if (in_array($post_id, $processed_posts)) {
-            return;
-        }
-        $processed_posts[] = $post_id;
-        // Check if weather data already exists
-        $wx_exists = metadata_exists('post', $post_id, 'wXSummary');
-        $temp_exists = metadata_exists('post', $post_id, 'temperature');
-        
-        if ($wx_exists && $temp_exists) {
-            error_log('EXIF Harvester: Weather data already exists for post ' . $post_id . ', skipping');
-            return; // Weather data already exists
-        }
+        // Allow weather processing - we've cleared existing data above
+        error_log('EXIF Harvester: Starting fresh weather processing for post ' . $post_id);
+        // ALWAYS clear existing weather data and fetch fresh data on save
+        error_log('EXIF Harvester: Clearing existing weather data for post ' . $post_id . ' to fetch fresh data');
+        delete_post_meta($post_id, 'wXSummary');
+        delete_post_meta($post_id, 'temperature');
+        delete_post_meta($post_id, '_weather_last_attempt');
+        delete_post_meta($post_id, '_weather_last_failure');
+        delete_post_meta($post_id, '_weather_gps_used');
+        delete_post_meta($post_id, '_weather_datetime_used');
         
         error_log('EXIF Harvester: Weather data missing for post ' . $post_id . ' (wX: ' . ($wx_exists ? 'exists' : 'missing') . ', temp: ' . ($temp_exists ? 'exists' : 'missing') . ')');
         
@@ -2640,7 +2667,10 @@ class EXIFHarvester {
         error_log('EXIF Harvester: Weather data available for post ' . $post_id . ' - GPS: "' . $gps_coords . '", unixTime: "' . $unix_time . '", gmtOffset: "' . $gmt_offset . '"');
         
         if (empty($gps_coords) || empty($unix_time)) {
-            error_log('EXIF Harvester: Missing required data for weather lookup on post ' . $post_id . ' (GPS: ' . ($gps_coords ? 'exists' : 'missing') . ', time: ' . ($unix_time ? 'exists' : 'missing') . ')');
+            error_log('EXIF Harvester: Cannot process weather for post ' . $post_id . ' - missing required data:');
+            error_log('  GPS coordinates: ' . ($gps_coords ? '"' . $gps_coords . '"' : 'MISSING'));
+            error_log('  Unix timestamp: ' . ($unix_time ? $unix_time . ' (' . date('Y-m-d H:i:s', $unix_time) . ')' : 'MISSING'));
+            error_log('  DateTime original: ' . ($datetime_original ? '"' . $datetime_original . '"' : 'MISSING'));
             return; // Missing required data
         }
         
@@ -2682,11 +2712,13 @@ class EXIFHarvester {
         );
         
         if ($weather_result) {
-            // Success - clear any previous failure timestamp
-            delete_post_meta($post_id, '_weather_last_failure');
+            // Success - record what GPS/datetime were used for future reference
+            update_post_meta($post_id, '_weather_gps_used', $gps_coords);
+            update_post_meta($post_id, '_weather_datetime_used', $datetime_original);
+            update_post_meta($post_id, '_weather_last_success', time());
             
             // Always log success
-            error_log('EXIF Harvester: Weather data retrieved for post ' . $post_id . ': ' . $weather_result);
+            error_log('EXIF Harvester: Weather data retrieved successfully for post ' . $post_id . ': ' . $weather_result);
         } else {
             // Failure - record failure timestamp
             update_post_meta($post_id, '_weather_last_failure', time());
@@ -2702,6 +2734,9 @@ class EXIFHarvester {
     private function force_retry_weather_data($post_id) {
         delete_post_meta($post_id, '_weather_last_attempt');
         delete_post_meta($post_id, '_weather_last_failure');
+        delete_post_meta($post_id, '_weather_last_success');
+        delete_post_meta($post_id, '_weather_gps_used');
+        delete_post_meta($post_id, '_weather_datetime_used');
         delete_post_meta($post_id, 'wXSummary');
         delete_post_meta($post_id, 'temperature');
         
