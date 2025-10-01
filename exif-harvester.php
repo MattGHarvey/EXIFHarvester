@@ -168,6 +168,13 @@ class EXIFHarvester {
         add_action('wp_ajax_exif_harvester_delete_location', array($this, 'ajax_delete_location'));
         add_action('wp_ajax_exif_harvester_manual_process', array($this, 'ajax_manual_process'));
         
+        // Register async weather processing hook
+        add_action('exif_harvester_async_weather_processing', array($this, 'async_weather_processing_callback'));
+        
+        // Register AJAX handler for async weather processing fallback
+        add_action('wp_ajax_exif_harvester_async_weather', array($this, 'ajax_async_weather_processing'));
+        add_action('wp_ajax_nopriv_exif_harvester_async_weather', array($this, 'ajax_async_weather_processing'));
+        
         // Admin hooks
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('admin_init', array($this, 'admin_init'));
@@ -1541,8 +1548,19 @@ class EXIFHarvester {
             wp_send_json_error(__('Post not found.', 'exif-harvester'));
         }
         
-        // Process EXIF data
-        $this->process_post_exif($post_id, $post, true, null);
+        // Process EXIF data (skip async weather processing for manual refresh)
+        $this->process_post_exif($post_id, $post, true, null, true);
+        
+        // Process weather data synchronously for manual refresh with error capture
+        $weather_error = null;
+        if ($this->settings['weather_api_enabled'] && !empty($this->settings['pirate_weather_api_key'])) {
+            try {
+                // Force immediate weather processing and capture any errors
+                $weather_error = $this->process_weather_data_sync($post_id);
+            } catch (Exception $e) {
+                $weather_error = 'Weather processing exception: ' . $e->getMessage();
+            }
+        }
         
         // Get updated EXIF data
         $camera = get_post_meta($post_id, 'camera', true);
@@ -1576,9 +1594,25 @@ class EXIFHarvester {
             if ($weather) {
                 $temp_display = $temperature ? ' (' . $temperature . '°C)' : '';
                 $html .= '<p><strong>' . __('Weather:', 'exif-harvester') . '</strong><br>' . esc_html($weather) . $temp_display . '</p>';
+            } elseif ($this->settings['weather_api_enabled'] && $weather_error) {
+                // Show weather error if weather is enabled but failed
+                $html .= '<p><strong>' . __('Weather:', 'exif-harvester') . '</strong><br><span style="color: #d63638;">' . esc_html($weather_error) . '</span></p>';
             }
         } else {
             $html .= '<p class="no-exif-data">' . __('No EXIF data found for this post.', 'exif-harvester') . '</p>';
+        }
+        
+        // Add weather processing info if weather API is enabled
+        if ($this->settings['weather_api_enabled']) {
+            if ($weather_error) {
+                $html .= '<p class="weather-status" style="color: #d63638; font-style: italic; margin-top: 10px;"><strong>Weather API:</strong> ' . esc_html($weather_error) . '</p>';
+            } elseif ($weather && $temperature) {
+                $html .= '<p class="weather-status" style="color: #00a32a; font-style: italic; margin-top: 10px;"><strong>Weather API:</strong> Successfully retrieved weather data</p>';
+            } elseif ($gps && $datetime_original) {
+                $html .= '<p class="weather-status" style="color: #dba617; font-style: italic; margin-top: 10px;"><strong>Weather API:</strong> GPS and date found but no weather data retrieved</p>';
+            } else {
+                $html .= '<p class="weather-status" style="color: #646970; font-style: italic; margin-top: 10px;"><strong>Weather API:</strong> Missing GPS coordinates or date/time data</p>';
+            }
         }
         
         wp_send_json_success(array(
@@ -2017,7 +2051,7 @@ class EXIFHarvester {
     /**
      * Main function to process EXIF data when posts are saved
      */
-    public function process_post_exif($post_id, $post, $update, $post_before = null) {
+    public function process_post_exif($post_id, $post, $update, $post_before = null, $is_manual_refresh = false) {
         // ALWAYS log when hook is triggered - test logging
         error_log('EXIF Harvester: wp_after_insert_post hook triggered for post ' . $post_id . ' - BASIC TEST LOG');
         
@@ -2364,23 +2398,27 @@ class EXIFHarvester {
         // Ensure GMT offset is calculated after both GPS and datetime processing
         $this->ensure_gmt_offset($post_id);
         
-        // Process weather data if enabled and API key is available
-        error_log('EXIF Harvester: WEATHER CHECK (post-EXIF) - Enabled: ' . ($this->settings['weather_api_enabled'] ? 'yes' : 'no') . ', API Key: ' . (empty($this->settings['pirate_weather_api_key']) ? 'empty' : 'configured') . ' for post ' . $post_id);
-        
-        if ($this->settings['weather_api_enabled'] && !empty($this->settings['pirate_weather_api_key'])) {
-            try {
-                error_log('EXIF Harvester: Calling process_weather_data (post-EXIF) for post ' . $post_id);
-                $this->process_weather_data($post_id);
-            } catch (Exception $e) {
-                error_log('EXIF Harvester: Error processing weather data (post-EXIF) for post ' . $post_id . ': ' . $e->getMessage());
+        // Process weather data if enabled and API key is available (async for normal saves, sync handled separately for manual refresh)
+        if (!$is_manual_refresh) {
+            error_log('EXIF Harvester: WEATHER CHECK (post-EXIF) - Enabled: ' . ($this->settings['weather_api_enabled'] ? 'yes' : 'no') . ', API Key: ' . (empty($this->settings['pirate_weather_api_key']) ? 'empty' : 'configured') . ' for post ' . $post_id);
+            
+            if ($this->settings['weather_api_enabled'] && !empty($this->settings['pirate_weather_api_key'])) {
+                try {
+                    error_log('EXIF Harvester: Scheduling async weather processing (post-EXIF) for post ' . $post_id);
+                    $this->schedule_async_weather_processing($post_id);
+                } catch (Exception $e) {
+                    error_log('EXIF Harvester: Error scheduling weather data processing (post-EXIF) for post ' . $post_id . ': ' . $e->getMessage());
+                }
+            } else {
+                if (!$this->settings['weather_api_enabled']) {
+                    error_log('EXIF Harvester: Weather API is disabled (post-EXIF) for post ' . $post_id);
+                }
+                if (empty($this->settings['pirate_weather_api_key'])) {
+                    error_log('EXIF Harvester: Weather API key is empty (post-EXIF) for post ' . $post_id);
+                }
             }
         } else {
-            if (!$this->settings['weather_api_enabled']) {
-                error_log('EXIF Harvester: Weather API is disabled (post-EXIF) for post ' . $post_id);
-            }
-            if (empty($this->settings['pirate_weather_api_key'])) {
-                error_log('EXIF Harvester: Weather API key is empty (post-EXIF) for post ' . $post_id);
-            }
+            error_log('EXIF Harvester: Skipping async weather processing for manual refresh of post ' . $post_id . ' (handled separately)');
         }
         
         // Process SEO meta description after all other data is processed
@@ -2490,15 +2528,15 @@ class EXIFHarvester {
         // Ensure GMT offset is calculated after both GPS and datetime are processed
         $this->ensure_gmt_offset($post_id);
         
-        // Process weather data if enabled and API key is available
+        // Schedule async weather data processing if enabled and API key is available
         error_log('EXIF Harvester: WEATHER CHECK - Enabled: ' . ($this->settings['weather_api_enabled'] ? 'yes' : 'no') . ', API Key: ' . (empty($this->settings['pirate_weather_api_key']) ? 'empty' : 'configured') . ' for post ' . $post_id);
         
         if ($this->settings['weather_api_enabled'] && !empty($this->settings['pirate_weather_api_key'])) {
             try {
-                error_log('EXIF Harvester: Calling process_weather_data for post ' . $post_id);
-                $this->process_weather_data($post_id);
+                error_log('EXIF Harvester: Scheduling async weather processing for post ' . $post_id);
+                $this->schedule_async_weather_processing($post_id);
             } catch (Exception $e) {
-                error_log('EXIF Harvester: Error processing weather data for post ' . $post_id . ': ' . $e->getMessage());
+                error_log('EXIF Harvester: Error scheduling weather data processing for post ' . $post_id . ': ' . $e->getMessage());
             }
         } else {
             if (!$this->settings['weather_api_enabled']) {
@@ -2634,9 +2672,194 @@ class EXIFHarvester {
     }
     
     /**
-     * Process weather data for a post
+     * Schedule async weather processing for a post
      */
-    private function process_weather_data($post_id) {
+    private function schedule_async_weather_processing($post_id) {
+        // Prevent duplicate scheduling in the same request
+        static $scheduled_posts = array();
+        if (in_array($post_id, $scheduled_posts)) {
+            error_log('EXIF Harvester: Weather processing already scheduled for post ' . $post_id . ' in this request');
+            return;
+        }
+        $scheduled_posts[] = $post_id;
+        
+        // Clear any existing scheduled weather processing for this post
+        wp_clear_scheduled_hook('exif_harvester_async_weather_processing', array($post_id));
+        
+        // Try WordPress cron scheduling first
+        $scheduled = wp_schedule_single_event(time(), 'exif_harvester_async_weather_processing', array($post_id));
+        
+        if ($scheduled === false) {
+            error_log('EXIF Harvester: WP Cron scheduling failed for post ' . $post_id . ', trying wp_remote_post spawn');
+            
+            // Try to spawn async request using wp_remote_post as fallback
+            $spawn_success = $this->spawn_async_weather_request($post_id);
+            
+            if (!$spawn_success) {
+                // Final fallback to immediate processing
+                error_log('EXIF Harvester: All async methods failed, falling back to immediate weather processing for post ' . $post_id);
+                $this->process_weather_data($post_id, true);
+            }
+        } else {
+            error_log('EXIF Harvester: Successfully scheduled async weather processing for post ' . $post_id);
+        }
+    }
+    
+    /**
+     * Spawn async weather request using wp_remote_post (fallback method)
+     */
+    private function spawn_async_weather_request($post_id) {
+        // Create a nonce for security
+        $nonce = wp_create_nonce('exif_harvester_async_weather_' . $post_id);
+        
+        // Prepare the async request
+        $url = admin_url('admin-ajax.php');
+        $body = array(
+            'action' => 'exif_harvester_async_weather',
+            'post_id' => $post_id,
+            'nonce' => $nonce
+        );
+        
+        // Make non-blocking request
+        $response = wp_remote_post($url, array(
+            'timeout' => 0.01, // Very short timeout to avoid blocking
+            'blocking' => false, // Don't wait for response
+            'body' => $body,
+            'cookies' => $_COOKIE // Pass cookies for session
+        ));
+        
+        if (is_wp_error($response)) {
+            error_log('EXIF Harvester: Failed to spawn async weather request for post ' . $post_id . ': ' . $response->get_error_message());
+            return false;
+        } else {
+            error_log('EXIF Harvester: Successfully spawned async weather request for post ' . $post_id);
+            return true;
+        }
+    }
+
+    /**
+     * AJAX handler for async weather processing (fallback method)
+     */
+    public function ajax_async_weather_processing() {
+        $post_id = intval($_POST['post_id']);
+        $nonce = sanitize_text_field($_POST['nonce']);
+        
+        // Verify nonce
+        if (!wp_verify_nonce($nonce, 'exif_harvester_async_weather_' . $post_id)) {
+            error_log('EXIF Harvester: Invalid nonce for async weather processing of post ' . $post_id);
+            wp_die('Security check failed');
+        }
+        
+        // Verify post exists
+        if (!get_post($post_id)) {
+            error_log('EXIF Harvester: Post ' . $post_id . ' not found for async weather processing');
+            wp_die('Post not found');
+        }
+        
+        // Process weather data
+        error_log('EXIF Harvester: Starting AJAX async weather processing for post ' . $post_id);
+        $this->process_weather_data($post_id, true);
+        
+        // Return success (though client won't wait for this)
+        wp_die('success');
+    }
+
+    /**
+     * Async callback for background weather processing
+     */
+    public function async_weather_processing_callback($post_id) {
+        error_log('EXIF Harvester: Starting async weather processing for post ' . $post_id);
+        
+        // Reload settings in case they changed since scheduling
+        $this->load_settings();
+        
+        // Process weather data in the background
+        $this->process_weather_data($post_id, true);
+        
+        error_log('EXIF Harvester: Completed async weather processing for post ' . $post_id);
+    }
+
+    /**
+     * Process weather data synchronously for manual operations with error return
+     * 
+     * @param int $post_id The post ID
+     * @return string|null Error message if failed, null if successful
+     */
+    private function process_weather_data_sync($post_id) {
+        // Get required data
+        $gps_coords = get_post_meta($post_id, 'GPS', true);
+        $unix_time = get_post_meta($post_id, 'unixTime', true);
+        $datetime_original = get_post_meta($post_id, 'dateTimeOriginal', true);
+        $gmt_offset = get_post_meta($post_id, 'gmtOffset', true);
+        
+        // Clear existing weather data first
+        delete_post_meta($post_id, 'wXSummary');
+        delete_post_meta($post_id, 'temperature');
+        delete_post_meta($post_id, '_weather_last_attempt');
+        delete_post_meta($post_id, '_weather_last_failure');
+        delete_post_meta($post_id, '_weather_gps_used');
+        delete_post_meta($post_id, '_weather_datetime_used');
+        
+        // Check for required data
+        if (empty($gps_coords)) {
+            return 'No GPS coordinates found';
+        }
+        
+        if (empty($unix_time)) {
+            return 'No timestamp found';
+        }
+        
+        // Parse GPS coordinates
+        $coords = explode(',', $gps_coords);
+        if (count($coords) !== 2) {
+            return 'Invalid GPS coordinate format';
+        }
+        
+        $lat = (float) trim($coords[0]);
+        $lon = (float) trim($coords[1]);
+        
+        if ($lat == 0 || $lon == 0) {
+            return 'Invalid GPS coordinates (0,0)';
+        }
+        
+        // Convert to GMT if we have offset
+        $gmt_time = $unix_time;
+        if ($gmt_offset !== null && $gmt_offset !== '') {
+            $gmt_time = exif_harvester_convert_to_gmt($unix_time, $gmt_offset);
+        }
+        
+        // Record attempt timestamp
+        update_post_meta($post_id, '_weather_last_attempt', time());
+        
+        // Get weather data
+        $weather_result = exif_harvester_get_weather(
+            $lat, 
+            $lon, 
+            $gmt_time, 
+            $post_id, 
+            $this->settings['pirate_weather_api_key']
+        );
+        
+        if ($weather_result) {
+            // Success - record what GPS/datetime were used
+            update_post_meta($post_id, '_weather_gps_used', $gps_coords);
+            update_post_meta($post_id, '_weather_datetime_used', $datetime_original);
+            update_post_meta($post_id, '_weather_last_success', time());
+            return null; // Success, no error
+        } else {
+            // Failure - record failure timestamp and return error
+            update_post_meta($post_id, '_weather_last_failure', time());
+            return 'Failed to retrieve weather data from API';
+        }
+    }
+
+    /**
+     * Process weather data for a post
+     * 
+     * @param int $post_id The post ID
+     * @param bool $force_immediate Whether to force immediate processing (bypass async scheduling)
+     */
+    private function process_weather_data($post_id, $force_immediate = false) {
         // Allow weather processing - we've cleared existing data above
         error_log('EXIF Harvester: Starting fresh weather processing for post ' . $post_id);
         // ALWAYS clear existing weather data and fetch fresh data on save
@@ -2740,8 +2963,8 @@ class EXIFHarvester {
         delete_post_meta($post_id, 'wXSummary');
         delete_post_meta($post_id, 'temperature');
         
-        // Now process weather data
-        $this->process_weather_data($post_id);
+        // Now process weather data immediately (this is usually called from manual actions)
+        $this->process_weather_data($post_id, true);
     }
     
     /**
