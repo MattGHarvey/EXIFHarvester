@@ -167,6 +167,7 @@ class EXIFHarvester {
         add_action('wp_ajax_exif_harvester_save_location', array($this, 'ajax_save_location'));
         add_action('wp_ajax_exif_harvester_delete_location', array($this, 'ajax_delete_location'));
         add_action('wp_ajax_exif_harvester_manual_process', array($this, 'ajax_manual_process'));
+        add_action('wp_ajax_exif_harvester_get_post_data', array($this, 'ajax_get_post_data'));
         
         // Register async weather processing hook
         add_action('exif_harvester_async_weather_processing', array($this, 'async_weather_processing_callback'));
@@ -786,6 +787,16 @@ class EXIFHarvester {
             array($this, 'location_corrections_page')
         );
         
+        // EXIF Data Overview submenu
+        add_submenu_page(
+            'exif-harvester',
+            __('EXIF Data Overview', 'exif-harvester'),
+            __('Data Overview', 'exif-harvester'),
+            'manage_options',
+            'exif-harvester-overview',
+            array($this, 'exif_data_overview_page')
+        );
+        
         // Enqueue admin scripts
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
     }
@@ -1215,6 +1226,353 @@ class EXIFHarvester {
     }
     
     /**
+     * EXIF Data Overview page
+     */
+    public function exif_data_overview_page() {
+        // Include the overview functionality
+        require_once plugin_dir_path(__FILE__) . 'includes/exif-data-overview.php';
+        
+        // Handle bulk actions
+        if (isset($_POST['action']) && $_POST['action'] === 'refresh_exif' && !empty($_POST['post'])) {
+            check_admin_referer('bulk-posts');
+            
+            $post_ids = array_map('intval', $_POST['post']);
+            $processed = 0;
+            
+            foreach ($post_ids as $post_id) {
+                $post = get_post($post_id);
+                if ($post) {
+                    $this->process_post_exif($post_id, $post, true, null, true);
+                    $processed++;
+                }
+            }
+            
+            echo '<div class="notice notice-success"><p>' . 
+                 sprintf(__('Processed EXIF data for %d posts.', 'exif-harvester'), $processed) . 
+                 '</p></div>';
+        }
+        
+        // Create and display the table
+        $list_table = new EXIF_Data_Overview_List_Table($this);
+        $list_table->prepare_items();
+        
+        // Get statistics for dashboard
+        global $wpdb;
+        $enabled_post_types = $this->settings['enabled_post_types'];
+        
+        // Fallback if no post types are enabled
+        if (empty($enabled_post_types)) {
+            $enabled_post_types = array('post');
+        }
+        
+        $type_placeholders = implode(',', array_fill(0, count($enabled_post_types), '%s'));
+        
+        $total_posts = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_status IN ('publish', 'draft', 'private') AND post_type IN ($type_placeholders)",
+            $enabled_post_types
+        ));
+        
+        $posts_with_camera = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(DISTINCT p.ID) FROM {$wpdb->posts} p 
+             INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id 
+             WHERE p.post_status IN ('publish', 'draft', 'private') AND p.post_type IN ($type_placeholders)
+             AND pm.meta_key = 'camera' AND pm.meta_value != ''",
+            $enabled_post_types
+        ));
+        
+        $posts_with_weather = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(DISTINCT p.ID) FROM {$wpdb->posts} p 
+             INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id 
+             WHERE p.post_status IN ('publish', 'draft', 'private') AND p.post_type IN ($type_placeholders)
+             AND pm.meta_key = 'wXSummary' AND pm.meta_value != ''",
+            $enabled_post_types
+        ));
+        
+        $posts_with_gps = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(DISTINCT p.ID) FROM {$wpdb->posts} p 
+             INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id 
+             WHERE p.post_status IN ('publish', 'draft', 'private') AND p.post_type IN ($type_placeholders)
+             AND pm.meta_key = 'GPS' AND pm.meta_value != ''",
+            $enabled_post_types
+        ));
+        
+        ?>
+        <div class="wrap">
+            <h1><?php _e('EXIF Data Overview', 'exif-harvester'); ?></h1>
+            <p><?php _e('View and manage EXIF/IPTC data across all your posts. Use the filters to find posts missing specific data, and use the refresh buttons to reprocess EXIF data.', 'exif-harvester'); ?></p>
+            
+
+            
+            <!-- Statistics Dashboard -->
+            <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                <div class="stat-card" style="background: #fff; border: 1px solid #c3c4c7; padding: 15px; border-radius: 4px; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                    <h3 style="margin: 0 0 8px 0; color: #1d2327; font-size: 14px;">📊 Total Posts</h3>
+                    <div style="font-size: 24px; font-weight: 600; color: #2271b1;"><?php echo number_format($total_posts); ?></div>
+                    <small style="color: #646970;">Eligible posts</small>
+                </div>
+                <div class="stat-card" style="background: #fff; border: 1px solid #c3c4c7; padding: 15px; border-radius: 4px; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                    <h3 style="margin: 0 0 8px 0; color: #1d2327; font-size: 14px;">📷 With Camera Data</h3>
+                    <div style="font-size: 24px; font-weight: 600; color: #00a32a;"><?php echo number_format($posts_with_camera); ?></div>
+                    <small style="color: #646970;"><?php echo $total_posts > 0 ? round(($posts_with_camera / $total_posts) * 100) : 0; ?>% coverage</small>
+                </div>
+                <div class="stat-card" style="background: #fff; border: 1px solid #c3c4c7; padding: 15px; border-radius: 4px; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                    <h3 style="margin: 0 0 8px 0; color: #1d2327; font-size: 14px;">🌍 With GPS Data</h3>
+                    <div style="font-size: 24px; font-weight: 600; color: #00a32a;"><?php echo number_format($posts_with_gps); ?></div>
+                    <small style="color: #646970;"><?php echo $total_posts > 0 ? round(($posts_with_gps / $total_posts) * 100) : 0; ?>% coverage</small>
+                </div>
+                <div class="stat-card" style="background: #fff; border: 1px solid #c3c4c7; padding: 15px; border-radius: 4px; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                    <h3 style="margin: 0 0 8px 0; color: #1d2327; font-size: 14px;">🌤️ With Weather Data</h3>
+                    <div style="font-size: 24px; font-weight: 600; color: <?php echo $this->settings['weather_api_enabled'] ? '#00a32a' : '#646970'; ?>;">
+                        <?php echo number_format($posts_with_weather); ?>
+                    </div>
+                    <small style="color: #646970;">
+                        <?php if ($this->settings['weather_api_enabled']): ?>
+                            <?php echo $total_posts > 0 ? round(($posts_with_weather / $total_posts) * 100) : 0; ?>% coverage
+                        <?php else: ?>
+                            Weather API disabled
+                        <?php endif; ?>
+                    </small>
+                </div>
+            </div>
+            
+            <form method="post" id="exif-overview-form">
+                <?php
+                $list_table->search_box(__('Search posts', 'exif-harvester'), 'post');
+                $list_table->display();
+                wp_nonce_field('bulk-posts');
+                ?>
+            </form>
+            
+            <style>
+                .refresh-exif-data {
+                    font-size: 11px;
+                    padding: 4px 8px;
+                    border-radius: 3px;
+                    background: #f0f0f1;
+                    border: 1px solid #c3c4c7;
+                    color: #2c3338;
+                    cursor: pointer;
+                    transition: all 0.15s ease-in-out;
+                }
+                .refresh-exif-data:hover {
+                    background: #0073aa;
+                    color: #fff;
+                    border-color: #0073aa;
+                }
+                .refresh-exif-data:disabled {
+                    opacity: 0.5;
+                    cursor: not-allowed;
+                }
+                .refresh-exif-data.loading {
+                    background-image: url('<?php echo admin_url('images/spinner.gif'); ?>');
+                    background-repeat: no-repeat;
+                    background-position: 4px center;
+                    background-size: 16px 16px;
+                    padding-left: 26px;
+                    background-color: #f0f6fc;
+                    border-color: #0073aa;
+                }
+                .refresh-exif-data.success {
+                    background-color: #d4edda;
+                    color: #155724;
+                    border-color: #c3e6cb;
+                }
+                .refresh-exif-data.error {
+                    background-color: #f8d7da;
+                    color: #721c24;
+                    border-color: #f5c6cb;
+                }
+                .wp-list-table th.sortable a, .wp-list-table th.sorted a {
+                    text-decoration: none;
+                }
+                .tablenav .actions select {
+                    margin-right: 10px;
+                }
+                .stats-grid .stat-card:hover {
+                    box-shadow: 0 2px 4px rgba(0,0,0,.1);
+                }
+                .wp-list-table .column-gps {
+                    width: 140px;
+                }
+                .wp-list-table .column-camera {
+                    width: 120px;
+                }
+                .wp-list-table .column-lens {
+                    width: 120px;
+                }
+                .wp-list-table .column-weather {
+                    width: 100px;
+                }
+                .wp-list-table .column-actions {
+                    width: 100px;
+                    text-align: center;
+                }
+                .wp-list-table .column-datetime_original {
+                    width: 120px;
+                }
+                .exif-overview-notice {
+                    margin: 15px 0;
+                    padding: 10px 15px;
+                    border-radius: 4px;
+                    font-weight: 500;
+                }
+                .exif-overview-notice.success {
+                    background-color: #d4edda;
+                    color: #155724;
+                    border-left: 4px solid #28a745;
+                }
+                .exif-overview-notice.info {
+                    background-color: #d1ecf1;
+                    color: #0c5460;
+                    border-left: 4px solid #17a2b8;
+                }
+            </style>
+            
+            <script type="text/javascript">
+            jQuery(document).ready(function($) {
+                
+                // Function to update a specific row with fresh data
+                function updateRowData(postId, row) {
+                    $.ajax({
+                        url: ajaxurl,
+                        type: 'POST',
+                        data: {
+                            action: 'exif_harvester_get_post_data',
+                            post_id: postId,
+                            nonce: '<?php echo wp_create_nonce('exif_harvester_metabox_nonce'); ?>'
+                        },
+                        success: function(response) {
+                            if (response.success && response.data) {
+                                var data = response.data;
+                                
+                                // Update each column with fresh data
+                                row.find('.column-camera').html(data.camera || '<span style="color: #999;">—</span>');
+                                row.find('.column-lens').html(data.lens || '<span style="color: #999;">—</span>');
+                                row.find('.column-gps').html(data.gps || '<span style="color: #999;">—</span>');
+                                row.find('.column-location').html(data.location || '<span style="color: #999;">—</span>');
+                                row.find('.column-weather').html(data.weather || '<span style="color: #999;">—</span>');
+                                row.find('.column-datetime_original').html(data.datetime_original || '<span style="color: #999;">—</span>');
+                                
+                                // Add a subtle flash effect to show the row was updated
+                                row.animate({backgroundColor: '#d4edda'}, 200).animate({backgroundColor: ''}, 800);
+                            }
+                        },
+                        error: function() {
+                            // If individual update fails, fall back to full page reload preserving URL
+                            var currentUrl = window.location.href;
+                            window.location.href = currentUrl;
+                        }
+                    });
+                }
+                // Handle individual refresh buttons
+                $('.refresh-exif-data').on('click', function(e) {
+                    e.preventDefault();
+                    
+                    var button = $(this);
+                    var postId = button.data('post-id');
+                    var row = button.closest('tr');
+                    
+                    button.prop('disabled', true).addClass('loading').removeClass('success error')
+                          .text('<?php _e('Processing...', 'exif-harvester'); ?>');
+                    
+                    $.ajax({
+                        url: ajaxurl,
+                        type: 'POST',
+                        data: {
+                            action: 'exif_harvester_manual_process',
+                            post_id: postId,
+                            nonce: '<?php echo wp_create_nonce('exif_harvester_metabox_nonce'); ?>'
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                button.removeClass('loading').addClass('success')
+                                      .text('<?php _e('Success!', 'exif-harvester'); ?>');
+                                      
+                                // Show success notice
+                                var notice = $('<div class="exif-overview-notice success"><?php _e('EXIF data updated successfully!', 'exif-harvester'); ?></div>');
+                                $('#exif-overview-form').prepend(notice);
+                                
+                                // Update the row data by making an AJAX call to get fresh data
+                                updateRowData(postId, row);
+                                
+                                // Auto-hide notice after 3 seconds
+                                setTimeout(function() {
+                                    notice.fadeOut();
+                                }, 3000);
+                            } else {
+                                button.removeClass('loading').addClass('error')
+                                      .text('<?php _e('Error', 'exif-harvester'); ?>');
+                                      
+                                var errorMsg = response.data || '<?php _e('Unknown error occurred', 'exif-harvester'); ?>';
+                                var notice = $('<div class="exif-overview-notice error"><strong><?php _e('Error:', 'exif-harvester'); ?></strong> ' + errorMsg + '</div>');
+                                $('#exif-overview-form').prepend(notice);
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            button.removeClass('loading').addClass('error')
+                                  .text('<?php _e('Error', 'exif-harvester'); ?>');
+                                  
+                            var notice = $('<div class="exif-overview-notice error"><strong><?php _e('Ajax Error:', 'exif-harvester'); ?></strong> ' + error + '</div>');
+                            $('#exif-overview-form').prepend(notice);
+                        },
+                        complete: function() {
+                            setTimeout(function() {
+                                if (!button.hasClass('success')) {
+                                    button.prop('disabled', false)
+                                          .removeClass('loading error')
+                                          .text('<?php _e('Refresh EXIF', 'exif-harvester'); ?>');
+                                }
+                            }, 3000);
+                        }
+                    });
+                });
+                
+                // Handle filter changes
+                $('select[name="filter_missing"]').on('change', function() {
+                    $('#post-query-submit').click();
+                });
+                
+                // Handle bulk actions
+                $('#doaction, #doaction2').on('click', function(e) {
+                    var action = $(this).siblings('select').val();
+                    var selected = $('input[name="post[]"]:checked').length;
+                    
+                    if (action === 'refresh_exif') {
+                        if (selected === 0) {
+                            alert('<?php _e('Please select posts to refresh.', 'exif-harvester'); ?>');
+                            e.preventDefault();
+                            return false;
+                        }
+                        
+                        if (!confirm('<?php _e('Are you sure you want to refresh EXIF data for the selected posts? This may take a while.', 'exif-harvester'); ?>')) {
+                            e.preventDefault();
+                            return false;
+                        }
+                        
+                        // Show processing notice
+                        var notice = $('<div class="exif-overview-notice info"><?php _e('Processing EXIF data for selected posts. Please wait...', 'exif-harvester'); ?></div>');
+                        $('#exif-overview-form').prepend(notice);
+                    }
+                });
+                
+                // Auto-hide notices after 5 seconds
+                setTimeout(function() {
+                    $('.exif-overview-notice').fadeOut();
+                }, 5000);
+            });
+            </script>
+        </div>
+        <?php
+    }
+    
+    /**
+     * Get plugin settings
+     */
+    public function get_settings() {
+        return $this->settings;
+    }
+    
+    /**
      * Post types field callback
      */
     public function post_types_callback() {
@@ -1618,6 +1976,57 @@ class EXIFHarvester {
         wp_send_json_success(array(
             'message' => __('EXIF data processed successfully', 'exif-harvester'),
             'html' => $html
+        ));
+    }
+    
+    /**
+     * AJAX handler to get fresh post data for table row updates
+     */
+    public function ajax_get_post_data() {
+        // Security checks
+        if (!current_user_can('edit_posts')) {
+            wp_send_json_error(__('You do not have permission to perform this action.', 'exif-harvester'));
+        }
+        
+        if (!wp_verify_nonce($_POST['nonce'], 'exif_harvester_metabox_nonce')) {
+            wp_send_json_error(__('Security check failed.', 'exif-harvester'));
+        }
+        
+        $post_id = intval($_POST['post_id']);
+        if (!$post_id) {
+            wp_send_json_error(__('Invalid post ID.', 'exif-harvester'));
+        }
+        
+        // Get fresh EXIF data
+        $camera = get_post_meta($post_id, 'camera', true);
+        $lens = get_post_meta($post_id, 'lens', true);
+        $gps_raw = get_post_meta($post_id, 'GPS', true);
+        $location = get_post_meta($post_id, 'location', true);
+        $weather = get_post_meta($post_id, 'wXSummary', true);
+        $datetime_original = get_post_meta($post_id, 'dateTimeOriginal', true);
+        
+        // Format GPS coordinates for display
+        $gps_formatted = '';
+        if ($gps_raw) {
+            $gps_parts = explode(',', $gps_raw);
+            if (count($gps_parts) === 2) {
+                $lat = trim($gps_parts[0]);
+                $lng = trim($gps_parts[1]);
+                $gps_formatted = '<span title="' . esc_attr($gps_raw) . '">' . 
+                               number_format(floatval($lat), 4) . ', ' . 
+                               number_format(floatval($lng), 4) . '</span>';
+            } else {
+                $gps_formatted = esc_html($gps_raw);
+            }
+        }
+        
+        wp_send_json_success(array(
+            'camera' => $camera ? esc_html($camera) : null,
+            'lens' => $lens ? esc_html($lens) : null,
+            'gps' => $gps_formatted ?: null,
+            'location' => $location ? esc_html($location) : null,
+            'weather' => $weather ? esc_html($weather) : null,
+            'datetime_original' => $datetime_original ? esc_html($datetime_original) : null
         ));
     }
     
