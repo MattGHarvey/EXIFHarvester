@@ -1776,6 +1776,7 @@ class EXIFHarvester {
         $weather = get_post_meta($post->ID, 'wXSummary', true);
         $temperature = get_post_meta($post->ID, 'temperature', true);
         $datetime_original = get_post_meta($post->ID, 'dateTimeOriginal', true);
+        $weather_api_urls = get_post_meta($post->ID, '_weather_api_urls', true);
         
         echo '<div id="exif-metabox-content">';
         echo '<div class="exif-data-display">';
@@ -1809,6 +1810,30 @@ class EXIFHarvester {
             }
         } else {
             echo '<p class="no-exif-data">' . __('No EXIF data found for this post.', 'exif-harvester') . '</p>';
+        }
+        
+        // Show API URLs that were attempted (for debugging)
+        if ($this->settings['weather_api_enabled']) {
+            echo '<div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #ddd;">';
+            echo '<p style="color: #646970; font-size: 11px; margin-bottom: 5px;"><strong>🔧 Weather API Debug URLs:</strong></p>';
+            
+            if (!empty($weather_api_urls) && is_array($weather_api_urls)) {
+                echo '<div style="background: #f0f8ff; border: 1px solid #0073aa; padding: 8px; border-radius: 3px; font-size: 11px; font-family: monospace; word-break: break-all;">';
+                foreach ($weather_api_urls as $index => $url) {
+                    $endpoint_type = (strpos($url, 'timemachine') !== false) ? 'Time Machine' : 'Current API';
+                    echo '<div style="margin-bottom: 8px; color: #0073aa;">';
+                    echo '<strong>' . ($index + 1) . '. ' . esc_html($endpoint_type) . ':</strong><br>';
+                    echo '<span style="color: #333; user-select: all; cursor: text; padding: 2px; background: rgba(255,255,255,0.7); border-radius: 2px; display: inline-block; width: 100%; box-sizing: border-box;">' . esc_html($url) . '</span>';
+                    echo '</div>';
+                }
+                echo '</div>';
+                echo '<p style="color: #d63638; font-size: 10px; margin-top: 5px; font-style: italic;">⚠️ These URLs contain your real API key - don\'t share publicly!</p>';
+            } else {
+                echo '<div style="background: #f9f9f9; border: 1px solid #ddd; padding: 8px; border-radius: 3px; font-size: 11px; color: #999; font-style: italic;">';
+                echo 'No weather API URLs recorded yet. Click "Refresh EXIF Data" to see the testable URLs.';
+                echo '</div>';
+            }
+            echo '</div>';
         }
         
         echo '</div>';
@@ -1933,6 +1958,7 @@ class EXIFHarvester {
         $weather = get_post_meta($post_id, 'wXSummary', true);
         $temperature = get_post_meta($post_id, 'temperature', true);
         $datetime_original = get_post_meta($post_id, 'dateTimeOriginal', true);
+        $weather_api_urls = get_post_meta($post_id, '_weather_api_urls', true);
         
         // Generate updated HTML
         $html = '';
@@ -1980,6 +2006,25 @@ class EXIFHarvester {
                 $html .= '<p class="weather-status" style="color: #dba617; font-style: italic; margin-top: 10px;"><strong>Weather API:</strong> GPS and date found but no weather data retrieved</p>';
             } else {
                 $html .= '<p class="weather-status" style="color: #646970; font-style: italic; margin-top: 10px;"><strong>Weather API:</strong> Missing GPS coordinates or date/time data</p>';
+            }
+            
+            // Show API URLs that were attempted (for debugging)
+            if (!empty($weather_api_urls) && is_array($weather_api_urls)) {
+                $html .= '<p class="weather-api-urls" style="color: #646970; font-size: 11px; margin-top: 5px; margin-bottom: 0;"><strong>🔧 Debug URLs (copy to browser):</strong></p>';
+                $html .= '<div style="background: #f0f8ff; border: 1px solid #0073aa; padding: 8px; margin-top: 5px; border-radius: 3px; font-size: 11px; font-family: monospace; word-break: break-all;">';
+                foreach ($weather_api_urls as $index => $url) {
+                    // Additional debug info
+                    $endpoint_type = (strpos($url, 'timemachine') !== false) ? 'Time Machine' : 'Current API';
+                    $html .= '<div style="margin-bottom: 8px; color: #0073aa;">';
+                    $html .= '<strong>' . ($index + 1) . '. ' . $endpoint_type . ':</strong><br>';
+                    $html .= '<span style="color: #333; user-select: all; cursor: text; padding: 2px; background: rgba(255,255,255,0.7); border-radius: 2px;">' . esc_html($url) . '</span>';
+                    $html .= '</div>';
+                }
+                $html .= '</div>';
+                $html .= '<p style="color: #d63638; font-size: 10px; margin-top: 5px; font-style: italic;">⚠️ These URLs contain your real API key - don\'t share publicly!</p>';
+            } else {
+                // Show when no API URLs are available
+                $html .= '<p class="weather-api-urls" style="color: #999; font-size: 11px; margin-top: 5px; font-style: italic;">No weather API URLs recorded yet.</p>';
             }
         }
         

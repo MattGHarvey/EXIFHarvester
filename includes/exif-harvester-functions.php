@@ -565,6 +565,11 @@ function exif_harvester_get_weather($lat, $lon, $time, $post_id, $api_key) {
     );
     
     error_log('EXIF Harvester: Using proven endpoint order for post ' . $post_id . ' - timemachine first, then regular API fallback (age: ' . $age_days . ' days)');
+    error_log('EXIF Harvester: API key length for masking: ' . strlen($api_key) . ' characters');
+    
+    // Store the API URLs for debugging purposes (with REAL API key for easy browser testing)
+    update_post_meta($post_id, '_weather_api_urls', $endpoints);
+    error_log('EXIF Harvester: Storing API URLs with real keys for debugging post ' . $post_id);
     
     foreach ($endpoints as $index => $reqURL) {
         error_log('EXIF Harvester: Trying weather endpoint ' . ($index + 1) . ' for post ' . $post_id . ': ' . $reqURL);
