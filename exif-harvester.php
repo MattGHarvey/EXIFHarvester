@@ -1772,6 +1772,7 @@ class EXIFHarvester {
         $camera = get_post_meta($post->ID, 'camera', true);
         $lens = get_post_meta($post->ID, 'lens', true);
         $gps = get_post_meta($post->ID, 'GPS', true);
+        $gps_alt = get_post_meta($post->ID, 'GPSAlt', true);
         $weather = get_post_meta($post->ID, 'wXSummary', true);
         $temperature = get_post_meta($post->ID, 'temperature', true);
         $datetime_original = get_post_meta($post->ID, 'dateTimeOriginal', true);
@@ -1779,7 +1780,7 @@ class EXIFHarvester {
         echo '<div id="exif-metabox-content">';
         echo '<div class="exif-data-display">';
         
-        if ($camera || $lens || $gps || $weather || $datetime_original) {
+        if ($camera || $lens || $gps || $gps_alt || $weather || $datetime_original) {
             echo '<h4>' . __('Current EXIF Data:', 'exif-harvester') . '</h4>';
             
             if ($camera) {
@@ -1796,6 +1797,10 @@ class EXIFHarvester {
             
             if ($gps) {
                 echo '<p><strong>' . __('GPS:', 'exif-harvester') . '</strong><br>' . esc_html($gps) . '</p>';
+            }
+            
+            if ($gps_alt) {
+                echo '<p><strong>' . __('Altitude:', 'exif-harvester') . '</strong><br>' . esc_html($gps_alt) . '</p>';
             }
             
             if ($weather) {
@@ -1924,13 +1929,14 @@ class EXIFHarvester {
         $camera = get_post_meta($post_id, 'camera', true);
         $lens = get_post_meta($post_id, 'lens', true);
         $gps = get_post_meta($post_id, 'GPS', true);
+        $gps_alt = get_post_meta($post_id, 'GPSAlt', true);
         $weather = get_post_meta($post_id, 'wXSummary', true);
         $temperature = get_post_meta($post_id, 'temperature', true);
         $datetime_original = get_post_meta($post_id, 'dateTimeOriginal', true);
         
         // Generate updated HTML
         $html = '';
-        if ($camera || $lens || $gps || $weather || $datetime_original) {
+        if ($camera || $lens || $gps || $gps_alt || $weather || $datetime_original) {
             $html .= '<h4>' . __('Current EXIF Data:', 'exif-harvester') . '</h4>';
             
             if ($camera) {
@@ -1947,6 +1953,10 @@ class EXIFHarvester {
             
             if ($gps) {
                 $html .= '<p><strong>' . __('GPS:', 'exif-harvester') . '</strong><br>' . esc_html($gps) . '</p>';
+            }
+            
+            if ($gps_alt) {
+                $html .= '<p><strong>' . __('Altitude:', 'exif-harvester') . '</strong><br>' . esc_html($gps_alt) . '</p>';
             }
             
             if ($weather) {
