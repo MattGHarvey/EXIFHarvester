@@ -36,6 +36,7 @@ class EXIF_Data_Overview_List_Table extends WP_List_Table {
         $columns = array(
             'cb' => '<input type="checkbox" />',
             'title' => __('Post Title', 'exif-harvester'),
+            'post_status' => __('Status', 'exif-harvester'),
             'post_date' => __('Date', 'exif-harvester'),
             'camera' => __('Camera', 'exif-harvester'),
             'lens' => __('Lens', 'exif-harvester'),
@@ -55,6 +56,7 @@ class EXIF_Data_Overview_List_Table extends WP_List_Table {
     public function get_sortable_columns() {
         return array(
             'title' => array('title', false),
+            'post_status' => array('post_status', false),
             'post_date' => array('post_date', true),
             'camera' => array('camera', false),
             'lens' => array('lens', false),
@@ -97,7 +99,7 @@ class EXIF_Data_Overview_List_Table extends WP_List_Table {
             LEFT JOIN {$wpdb->postmeta} location ON p.ID = location.post_id AND location.meta_key = 'location'
             LEFT JOIN {$wpdb->postmeta} weather ON p.ID = weather.post_id AND weather.meta_key = 'wXSummary'
             LEFT JOIN {$wpdb->postmeta} datetime_original ON p.ID = datetime_original.post_id AND datetime_original.meta_key = 'dateTimeOriginal'
-            WHERE p.post_status IN ('publish', 'draft', 'private')
+            WHERE p.post_status IN ('publish', 'draft', 'private', 'pending', 'future')
         ";
         
         // Add post type filter
@@ -137,6 +139,9 @@ class EXIF_Data_Overview_List_Table extends WP_List_Table {
         switch ($orderby) {
             case 'title':
                 $query .= " ORDER BY p.post_title $order";
+                break;
+            case 'post_status':
+                $query .= " ORDER BY p.post_status $order, p.post_date DESC";
                 break;
             case 'camera':
                 $query .= " ORDER BY camera.meta_value $order, p.post_date DESC";
@@ -224,6 +229,18 @@ class EXIF_Data_Overview_List_Table extends WP_List_Table {
      */
     protected function column_default($item, $column_name) {
         switch($column_name) {
+            case 'post_status':
+                $status_obj = get_post_status_object($item->post_status);
+                $status_label = $status_obj ? $status_obj->label : ucfirst($item->post_status);
+                $status_colors = array(
+                    'publish' => '#00a32a',
+                    'draft' => '#646970',
+                    'pending' => '#f0b849',
+                    'private' => '#2271b1',
+                    'future' => '#8c5cc6'
+                );
+                $color = isset($status_colors[$item->post_status]) ? $status_colors[$item->post_status] : '#646970';
+                return '<span style="color: ' . esc_attr($color) . '; font-weight: 500;">' . esc_html($status_label) . '</span>';
             case 'post_date':
                 return get_the_date('Y-m-d H:i', $item->ID);
             case 'camera':
