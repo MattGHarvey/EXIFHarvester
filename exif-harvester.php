@@ -2,8 +2,8 @@
 /**
  * Plugin Name: EXIF Harvester
  * Plugin URI: https://www.75centralphotography.com
- * Description: Automatically extracts and stores EXIF metadata from images when posts are saved or edited. Stores data in custom fields for camera, lens, GPS coordinates, date/time information, and more.
- * Version: 1.2.0
+ * Description: Automatically extracts and stores EXIF metadata from images when posts are saved or edited. Supports JPEG (EXIF/IPTC) and WebP (XMP) formats. Stores data in custom fields for camera, lens, GPS coordinates, date/time information, and more.
+ * Version: 1.3.0
  * Author: Matt Harvey
  * Author URI: https://www.75centralphotography.com
  * License: GPL v2 or later
@@ -2820,15 +2820,41 @@ class EXIFHarvester {
             }
             
             if (!empty($fullsize_path) && file_exists($fullsize_path)) {
-                $exif_data = @exif_read_data($fullsize_path);
+                // Detect file type and extract metadata accordingly
+                $mime_type = wp_check_filetype($fullsize_path);
+                $is_webp = ($mime_type['type'] === 'image/webp' || strtolower(pathinfo($fullsize_path, PATHINFO_EXTENSION)) === 'webp');
+                
+                if ($is_webp) {
+                    // WebP files: Extract metadata from both EXIF and XMP
+                    if (is_user_logged_in() && current_user_can('manage_options')) {
+                        error_log('EXIF Harvester: WebP file detected, extracting EXIF and XMP metadata');
+                    }
+                    $exif_data = exif_harvester_extract_webp_metadata($fullsize_path);
+                } else {
+                    // JPEG and other formats: Use standard EXIF reader
+                    $exif_data = @exif_read_data($fullsize_path);
+                }
+                
                 if (is_user_logged_in() && current_user_can('manage_options')) {
-                    error_log('EXIF Harvester: EXIF data from file path: ' . ($exif_data ? 'found' : 'not found'));
+                    error_log('EXIF Harvester: EXIF/XMP data from file path: ' . ($exif_data ? 'found' : 'not found') . ' (format: ' . ($is_webp ? 'WebP' : 'standard') . ')');
                 }
             } else {
                 // Fallback: try to read EXIF from image URL
                 $image_url = wp_get_attachment_url($attachment_id);
                 if (!empty($image_url) && filter_var($image_url, FILTER_VALIDATE_URL)) {
-                    $exif_data = @exif_read_data($image_url);
+                    // Check if it's a WebP file
+                    $is_webp = (strtolower(pathinfo($image_url, PATHINFO_EXTENSION)) === 'webp');
+                    
+                    if ($is_webp) {
+                        // For WebP, we need the local file path
+                        if (is_user_logged_in() && current_user_can('manage_options')) {
+                            error_log('EXIF Harvester: WebP URL detected but local file not available');
+                        }
+                        $exif_data = false;
+                    } else {
+                        $exif_data = @exif_read_data($image_url);
+                    }
+                    
                     if (is_user_logged_in() && current_user_can('manage_options')) {
                         error_log('EXIF Harvester: EXIF data from URL ' . $image_url . ': ' . ($exif_data ? 'found' : 'not found'));
                     }
@@ -2896,6 +2922,11 @@ class EXIFHarvester {
      * Process and store EXIF data
      */
     private function process_exif_data($post_id, $exif_data, $fullsize_path) {
+        // Debug: Log basic EXIF data info
+        if (is_user_logged_in() && current_user_can('manage_options')) {
+            error_log('EXIF Harvester: Found ' . count($exif_data) . ' metadata fields');
+        }
+        
         // Process photo dimensions
         exif_harvester_process_photo_dimensions($post_id, $fullsize_path);
         

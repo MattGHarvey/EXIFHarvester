@@ -23,13 +23,37 @@ The plugin includes a powerful metabox feature in the post editor:
 - **Efficiency**: Re-process data after changing images without multiple saves
 - **Validation**: Confirm weather and timezone data is being retrieved correctly
 
+## Supported Image Formats
+
+The plugin supports multiple image formats with intelligent metadata extraction:
+
+### JPEG Images
+- **EXIF Data**: Full support via PHP's `exif_read_data()` function
+- **IPTC Data**: Location, city, state, and country information
+- **Camera Settings**: ISO, aperture, shutter speed, focal length
+- **GPS Coordinates**: Latitude, longitude, altitude
+
+### WebP Images
+- **XMP Metadata**: Full support for XMP-embedded metadata
+- **EXIF-like Data**: Camera, lens, ISO, aperture, shutter speed, focal length
+- **GPS Coordinates**: Complete GPS data extraction from XMP
+- **IPTC Data**: Location, city, state, country from XMP metadata
+- **Image Dimensions**: Width, height, aspect ratio, megapixels
+
+**Note**: WebP support requires PHP 7.1+ with SimpleXML extension enabled.
+
 ## Troubleshooting
 
 ### EXIF Data Not Being Extracted
 
-1. **Check Image Format**: Ensure images are JPEG format (PNG and other formats may not contain EXIF data)
-2. **PHP EXIF Extension**: Verify that the PHP EXIF extension is installed and enabled on your server
-3. **Image Source**: Make sure the image actually contains EXIF data (camera phones and professional cameras typically include EXIF data, but images downloaded from the web may have been stripped)
+1. **Check Image Format**: 
+   - JPEG images: Ensure they contain EXIF data
+   - WebP images: Ensure they contain XMP metadata
+   - PNG and other formats may not contain extractable metadata
+2. **PHP Extensions**: 
+   - For JPEG: Verify that the PHP EXIF extension is installed and enabled
+   - For WebP: Verify that SimpleXML extension is enabled
+3. **Image Source**: Make sure the image actually contains metadata (camera phones and professional cameras typically include metadata, but images downloaded from the web may have been stripped)
 4. **Post Type**: Ensure the post type is enabled in the plugin settings
 5. **Use Metabox**: Try the "Refresh EXIF Data" button in the post editor for real-time diagnosticsensive metadata in custom fields and provides advanced features like weather integration, timezone handling, and location management.
 

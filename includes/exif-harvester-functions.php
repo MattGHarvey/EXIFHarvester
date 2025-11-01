@@ -13,6 +13,390 @@ if (!defined('ABSPATH')) {
 }
 
 /**
+ * Extract metadata from WebP files (both EXIF and XMP)
+ * 
+ * WebP files can contain both EXIF data in a separate chunk and XMP metadata.
+ * This function extracts both and merges them into a single array.
+ * 
+ * @param string $filepath Path to the WebP file
+ * @return array|false Array of metadata or false on failure
+ */
+function exif_harvester_extract_webp_metadata($filepath) {
+    if (!file_exists($filepath)) {
+        error_log('EXIF Harvester WebP: File does not exist: ' . $filepath);
+        return false;
+    }
+    
+    $metadata = array();
+    
+    // First, try to extract EXIF data from WebP EXIF chunk
+    $exif_data = exif_harvester_extract_exif_from_webp($filepath);
+    if ($exif_data && is_array($exif_data)) {
+        $metadata = array_merge($metadata, $exif_data);
+        error_log('EXIF Harvester WebP: Found ' . count($exif_data) . ' EXIF fields');
+    }
+    
+    // Then, extract XMP data (for IPTC location info)
+    $xmp_data = exif_harvester_extract_xmp_from_webp($filepath);
+    if ($xmp_data && is_array($xmp_data)) {
+        // XMP data takes precedence for IPTC fields
+        $metadata = array_merge($metadata, $xmp_data);
+        error_log('EXIF Harvester WebP: Found ' . count($xmp_data) . ' XMP fields');
+    }
+    
+    if (empty($metadata)) {
+        error_log('EXIF Harvester WebP: No metadata found');
+        return false;
+    }
+    
+    error_log('EXIF Harvester WebP: Total metadata fields: ' . count($metadata));
+    return $metadata;
+}
+
+/**
+ * Extract EXIF data from WebP EXIF chunk
+ * 
+ * WebP files can contain a separate EXIF chunk with camera metadata.
+ * This function extracts that data using exif_read_data on a temporary file.
+ * 
+ * @param string $filepath Path to the WebP file
+ * @return array|false Array of EXIF data or false on failure
+ */
+function exif_harvester_extract_exif_from_webp($filepath) {
+    if (!file_exists($filepath)) {
+        return false;
+    }
+    
+    // Read the file contents
+    $contents = file_get_contents($filepath);
+    if ($contents === false) {
+        error_log('EXIF Harvester WebP EXIF: Failed to read file');
+        return false;
+    }
+    
+    // Look for EXIF chunk in WebP
+    // WebP format: RIFF....WEBP then chunks like VP8, VP8L, VP8X, EXIF, XMP
+    $exif_pos = strpos($contents, 'EXIF');
+    
+    if ($exif_pos === false) {
+        error_log('EXIF Harvester WebP EXIF: No EXIF chunk found');
+        return false;
+    }
+    
+    // Extract EXIF chunk (skip "EXIF" marker and size bytes)
+    // The EXIF data starts after the chunk ID and size (8 bytes total)
+    $exif_start = $exif_pos + 8;
+    
+    // Get chunk size (4 bytes before EXIF marker)
+    $size_bytes = substr($contents, $exif_pos + 4, 4);
+    $exif_size = unpack('V', $size_bytes)[1]; // Little-endian unsigned long
+    
+    // Extract raw EXIF data
+    $exif_data = substr($contents, $exif_start, $exif_size - 4);
+    
+    // Create a temporary file with TIFF header + EXIF data
+    // EXIF data in WebP starts with byte offset, we need to add TIFF header
+    $temp_file = tempnam(sys_get_temp_dir(), 'webp_exif_');
+    if ($temp_file === false) {
+        error_log('EXIF Harvester WebP EXIF: Failed to create temp file');
+        return false;
+    }
+    
+    // Write TIFF header + EXIF data
+    file_put_contents($temp_file, $exif_data);
+    
+    // Read EXIF data using PHP's exif_read_data
+    $exif_array = @exif_read_data($temp_file, null, true);
+    
+    // Clean up temp file
+    unlink($temp_file);
+    
+    if (!$exif_array) {
+        error_log('EXIF Harvester WebP EXIF: Failed to parse EXIF data');
+        return false;
+    }
+    
+    // Flatten the EXIF array (it's multi-dimensional)
+    $flattened = array();
+    foreach ($exif_array as $section => $data) {
+        if (is_array($data)) {
+            foreach ($data as $key => $value) {
+                $flattened[$key] = $value;
+            }
+        }
+    }
+    
+    error_log('EXIF Harvester WebP EXIF: Extracted ' . count($flattened) . ' EXIF fields');
+    return $flattened;
+}
+
+/**
+ * Extract XMP metadata from WebP files
+ * 
+ * WebP files can contain XMP metadata which includes EXIF-like information.
+ * This function extracts and parses XMP data, converting it to a format
+ * compatible with standard EXIF arrays.
+ * 
+ * @param string $filepath Path to the WebP file
+ * @return array|false Array of EXIF-like data or false on failure
+ */
+function exif_harvester_extract_xmp_from_webp($filepath) {
+    if (!file_exists($filepath)) {
+        error_log('EXIF Harvester XMP: File does not exist: ' . $filepath);
+        return false;
+    }
+    
+    // Read the file contents
+    $contents = file_get_contents($filepath);
+    if ($contents === false) {
+        error_log('EXIF Harvester XMP: Failed to read file: ' . $filepath);
+        return false;
+    }
+    
+    error_log('EXIF Harvester XMP: File read successfully, size: ' . strlen($contents) . ' bytes');
+    
+    // Look for XMP metadata in the WebP file
+    // XMP data is typically stored in a 'XMP ' chunk
+    $xmp_data = exif_harvester_extract_xmp_from_binary($contents);
+    
+    if (!$xmp_data) {
+        error_log('EXIF Harvester XMP: No XMP data found in WebP file');
+        return false;
+    }
+    
+    error_log('EXIF Harvester XMP: XMP data extracted, length: ' . strlen($xmp_data) . ' bytes');
+    
+    // Parse XMP and convert to EXIF-like array
+    $result = exif_harvester_parse_xmp_to_exif($xmp_data);
+    
+    if ($result && is_array($result)) {
+        error_log('EXIF Harvester XMP: Successfully parsed ' . count($result) . ' metadata fields');
+    } else {
+        error_log('EXIF Harvester XMP: Failed to parse XMP data or no fields found');
+    }
+    
+    return $result;
+}
+
+/**
+ * Extract XMP data from binary file contents
+ * 
+ * @param string $contents Binary file contents
+ * @return string|false XMP data as XML string or false if not found
+ */
+function exif_harvester_extract_xmp_from_binary($contents) {
+    // Look for XMP packet markers
+    $xmp_start = strpos($contents, '<x:xmpmeta');
+    $xmp_end = strpos($contents, '</x:xmpmeta>');
+    
+    if ($xmp_start === false || $xmp_end === false) {
+        // Try alternative XMP start marker
+        $xmp_start = strpos($contents, '<?xpacket');
+        if ($xmp_start !== false) {
+            $xmp_end = strpos($contents, '<?xpacket end=');
+            if ($xmp_end !== false) {
+                $xmp_end = strpos($contents, '?>', $xmp_end) + 2;
+            }
+        }
+    } else {
+        $xmp_end += strlen('</x:xmpmeta>');
+    }
+    
+    if ($xmp_start === false || $xmp_end === false || $xmp_end <= $xmp_start) {
+        return false;
+    }
+    
+    return substr($contents, $xmp_start, $xmp_end - $xmp_start);
+}
+
+/**
+ * Parse XMP XML data and convert to EXIF-like array
+ * 
+ * @param string $xmp_data XMP data as XML string
+ * @return array EXIF-like array with metadata
+ */
+function exif_harvester_parse_xmp_to_exif($xmp_data) {
+    // Suppress XML parsing errors
+    $use_errors = libxml_use_internal_errors(true);
+    
+    $xml = simplexml_load_string($xmp_data);
+    if ($xml === false) {
+        error_log('EXIF Harvester XMP: Failed to parse XMP as XML');
+        libxml_use_internal_errors($use_errors);
+        return false;
+    }
+    
+    // Register XMP namespaces
+    $namespaces = array(
+        'rdf' => 'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
+        'exif' => 'http://ns.adobe.com/exif/1.0/',
+        'tiff' => 'http://ns.adobe.com/tiff/1.0/',
+        'xmp' => 'http://ns.adobe.com/xap/1.0/',
+        'aux' => 'http://ns.adobe.com/exif/1.0/aux/',
+        'photoshop' => 'http://ns.adobe.com/photoshop/1.0/',
+        'Iptc4xmpCore' => 'http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/',
+        'dc' => 'http://purl.org/dc/elements/1.1/'
+    );
+    
+    foreach ($namespaces as $prefix => $uri) {
+        $xml->registerXPathNamespace($prefix, $uri);
+    }
+    
+    $exif_array = array();
+    
+    // Get the rdf:Description element - this is where attributes are stored
+    $descriptions = $xml->xpath('//rdf:Description');
+    if (empty($descriptions)) {
+        error_log('EXIF Harvester XMP: No rdf:Description found in XMP');
+        libxml_use_internal_errors($use_errors);
+        return false;
+    }
+    
+    // Get the first Description element and extract attributes
+    $desc = $descriptions[0];
+    
+    // Camera Make
+    $tiff_attrs = $desc->attributes($namespaces['tiff']);
+    if (isset($tiff_attrs['Make'])) {
+        $exif_array['Make'] = (string)$tiff_attrs['Make'];
+    }
+    
+    // Camera Model
+    if (isset($tiff_attrs['Model'])) {
+        $exif_array['Model'] = (string)$tiff_attrs['Model'];
+    }
+    
+    // Lens Model
+    $aux_attrs = $desc->attributes($namespaces['aux']);
+    if (isset($aux_attrs['Lens'])) {
+        $exif_array['UndefinedTag:0xA434'] = (string)$aux_attrs['Lens'];
+    }
+    
+    // EXIF data
+    $exif_attrs = $desc->attributes($namespaces['exif']);
+    
+    // ISO
+    if (isset($exif_attrs['ISO'])) {
+        $exif_array['ISOSpeedRatings'] = (string)$exif_attrs['ISO'];
+    } elseif (isset($exif_attrs['ISOSpeedRatings'])) {
+        $exif_array['ISOSpeedRatings'] = (string)$exif_attrs['ISOSpeedRatings'];
+    }
+    
+    // Focal Length
+    if (isset($exif_attrs['FocalLength'])) {
+        $exif_array['FocalLength'] = (string)$exif_attrs['FocalLength'];
+    }
+    
+    // Aperture (F-Number)
+    if (isset($exif_attrs['FNumber'])) {
+        $exif_array['FNumber'] = (string)$exif_attrs['FNumber'];
+        $exif_array['ApertureValue'] = (string)$exif_attrs['FNumber'];
+    } elseif (isset($exif_attrs['ApertureValue'])) {
+        $exif_array['ApertureValue'] = (string)$exif_attrs['ApertureValue'];
+    }
+    
+    // Shutter Speed
+    if (isset($exif_attrs['ExposureTime'])) {
+        $exif_array['ExposureTime'] = (string)$exif_attrs['ExposureTime'];
+        $exif_array['ShutterSpeedValue'] = (string)$exif_attrs['ExposureTime'];
+    } elseif (isset($exif_attrs['ShutterSpeedValue'])) {
+        $exif_array['ShutterSpeedValue'] = (string)$exif_attrs['ShutterSpeedValue'];
+    }
+    
+    // Date/Time Original
+    if (isset($exif_attrs['DateTimeOriginal'])) {
+        $exif_array['DateTimeOriginal'] = (string)$exif_attrs['DateTimeOriginal'];
+    }
+    
+    // GPS Data
+    if (isset($exif_attrs['GPSLatitude'])) {
+        $lat_string = (string)$exif_attrs['GPSLatitude'];
+        $exif_array['GPSLatitude'] = exif_harvester_parse_gps_coordinate($lat_string);
+    }
+    if (isset($exif_attrs['GPSLatitudeRef'])) {
+        $exif_array['GPSLatitudeRef'] = (string)$exif_attrs['GPSLatitudeRef'];
+    }
+    if (isset($exif_attrs['GPSLongitude'])) {
+        $lon_string = (string)$exif_attrs['GPSLongitude'];
+        $exif_array['GPSLongitude'] = exif_harvester_parse_gps_coordinate($lon_string);
+    }
+    if (isset($exif_attrs['GPSLongitudeRef'])) {
+        $exif_array['GPSLongitudeRef'] = (string)$exif_attrs['GPSLongitudeRef'];
+    }
+    if (isset($exif_attrs['GPSAltitude'])) {
+        $exif_array['GPSAltitude'] = (string)$exif_attrs['GPSAltitude'];
+    }
+    if (isset($exif_attrs['GPSAltitudeRef'])) {
+        $exif_array['GPSAltitudeRef'] = (string)$exif_attrs['GPSAltitudeRef'];
+    }
+    
+    // IPTC Location data from photoshop namespace
+    $ps_attrs = $desc->attributes($namespaces['photoshop']);
+    if (isset($ps_attrs['City'])) {
+        $exif_array['IPTC_City'] = (string)$ps_attrs['City'];
+    }
+    if (isset($ps_attrs['State'])) {
+        $exif_array['IPTC_State'] = (string)$ps_attrs['State'];
+    }
+    if (isset($ps_attrs['Country'])) {
+        $exif_array['IPTC_Country'] = (string)$ps_attrs['Country'];
+    }
+    
+    // IPTC Location from Iptc4xmpCore
+    $iptc_attrs = $desc->attributes($namespaces['Iptc4xmpCore']);
+    if (isset($iptc_attrs['Location'])) {
+        $exif_array['IPTC_Location'] = (string)$iptc_attrs['Location'];
+    }
+    
+    // Description/Caption - this is often in a child element
+    $description = $xml->xpath('//dc:description/rdf:Alt/rdf:li');
+    if (!empty($description)) {
+        $exif_array['ImageDescription'] = (string)$description[0];
+    }
+    
+    libxml_use_internal_errors($use_errors);
+    
+    return !empty($exif_array) ? $exif_array : false;
+}
+
+/**
+ * Parse GPS coordinate string to EXIF format array
+ * 
+ * @param string $coord_string GPS coordinate string (e.g., "34,7.5N" or "118,15.2W")
+ * @return array GPS coordinate in EXIF format [degrees, minutes, seconds]
+ */
+function exif_harvester_parse_gps_coordinate($coord_string) {
+    // Remove any reference indicators (N, S, E, W)
+    $coord_string = preg_replace('/[NSEW]/i', '', $coord_string);
+    
+    // Handle comma-separated decimal degrees
+    if (strpos($coord_string, ',') !== false) {
+        $parts = explode(',', $coord_string);
+        if (count($parts) >= 2) {
+            $degrees = floatval($parts[0]);
+            $minutes = floatval($parts[1]);
+            $seconds = 0;
+            if (count($parts) >= 3) {
+                $seconds = floatval($parts[2]);
+            }
+            return array($degrees . '/1', $minutes . '/1', $seconds . '/1');
+        }
+    }
+    
+    // Handle decimal degrees
+    if (is_numeric($coord_string)) {
+        $decimal = floatval($coord_string);
+        $degrees = floor(abs($decimal));
+        $minutes = floor((abs($decimal) - $degrees) * 60);
+        $seconds = ((abs($decimal) - $degrees - $minutes / 60) * 3600);
+        return array($degrees . '/1', $minutes . '/1', round($seconds * 100) . '/100');
+    }
+    
+    // Return as-is if already in proper format
+    return $coord_string;
+}
+
+/**
  * Helper function to find greatest common divisor for aspect ratio calculation
  */
 if (!function_exists('gcd')) {
@@ -290,12 +674,14 @@ function exif_harvester_process_gps_data($post_id, $exif_data) {
 
 /**
  * Process photo dimensions
+ * Works with JPEG, PNG, WebP, and other image formats supported by getimagesize()
  */
 function exif_harvester_process_photo_dimensions($post_id, $fullsize_path) {
     if (empty($fullsize_path) || !file_exists($fullsize_path)) {
         return;
     }
     
+    // getimagesize() supports WebP starting from PHP 7.1
     $image_size = getimagesize($fullsize_path);
     if (!$image_size) {
         return;
@@ -770,20 +1156,31 @@ function exif_harvester_get_location($path) {
     }
 
     global $wpdb;
-    
-    // Try to get IPTC location directly
-    $iptc = iptcparse(file_get_contents($path));
     $location = null;
-
-    if (is_array($iptc) && isset($iptc['2#092'][0]) && !empty($iptc['2#092'][0])) {
-        $location = $iptc['2#092'][0];
+    
+    // Check if file is WebP - extract from XMP
+    $is_webp = (strtolower(pathinfo($path, PATHINFO_EXTENSION)) === 'webp');
+    
+    if ($is_webp) {
+        // Extract location from XMP in WebP
+        $xmp_data = exif_harvester_extract_xmp_from_webp($path);
+        if ($xmp_data && isset($xmp_data['IPTC_Location'])) {
+            $location = $xmp_data['IPTC_Location'];
+        }
     } else {
-        // Fallback: getimagesize for APP13
-        $image = getimagesize($path, $info);
-        if (isset($info["APP13"])) {
-            $iptc = iptcparse($info["APP13"]);
-            if (is_array($iptc) && isset($iptc['2#092'][0]) && !empty($iptc['2#092'][0])) {
-                $location = $iptc['2#092'][0];
+        // Try to get IPTC location directly for JPEG files
+        $iptc = iptcparse(file_get_contents($path));
+
+        if (is_array($iptc) && isset($iptc['2#092'][0]) && !empty($iptc['2#092'][0])) {
+            $location = $iptc['2#092'][0];
+        } else {
+            // Fallback: getimagesize for APP13
+            $image = getimagesize($path, $info);
+            if (isset($info["APP13"])) {
+                $iptc = iptcparse($info["APP13"]);
+                if (is_array($iptc) && isset($iptc['2#092'][0]) && !empty($iptc['2#092'][0])) {
+                    $location = $iptc['2#092'][0];
+                }
             }
         }
     }
@@ -817,21 +1214,32 @@ function exif_harvester_get_city($path) {
     
     $city = null;
     
-    // Parse IPTC metadata from the file contents
-    $iptc = iptcparse(file_get_contents($path));
+    // Check if file is WebP - extract from XMP
+    $is_webp = (strtolower(pathinfo($path, PATHINFO_EXTENSION)) === 'webp');
+    
+    if ($is_webp) {
+        // Extract city from XMP in WebP
+        $xmp_data = exif_harvester_extract_xmp_from_webp($path);
+        if ($xmp_data && isset($xmp_data['IPTC_City'])) {
+            $city = $xmp_data['IPTC_City'];
+        }
+    } else {
+        // Parse IPTC metadata from the file contents for JPEG
+        $iptc = iptcparse(file_get_contents($path));
 
-    // Check for the '2#090' tag (City) in the IPTC metadata
-    if (is_array($iptc) && isset($iptc['2#090'][0]) && !empty($iptc['2#090'][0])) {
-        $city = $iptc['2#090'][0]; // Return the city
-    }
+        // Check for the '2#090' tag (City) in the IPTC metadata
+        if (is_array($iptc) && isset($iptc['2#090'][0]) && !empty($iptc['2#090'][0])) {
+            $city = $iptc['2#090'][0]; // Return the city
+        }
 
-    // Fallback: Parse IPTC data from APP13 segment using getimagesize
-    if (!$city) {
-        $image = getimagesize($path, $info);
-        if (isset($info['APP13'])) {
-            $iptc = iptcparse($info['APP13']);
-            if (is_array($iptc) && isset($iptc['2#090'][0]) && !empty($iptc['2#090'][0])) {
-                $city = $iptc['2#090'][0]; // Return the city
+        // Fallback: Parse IPTC data from APP13 segment using getimagesize
+        if (!$city) {
+            $image = getimagesize($path, $info);
+            if (isset($info['APP13'])) {
+                $iptc = iptcparse($info['APP13']);
+                if (is_array($iptc) && isset($iptc['2#090'][0]) && !empty($iptc['2#090'][0])) {
+                    $city = $iptc['2#090'][0]; // Return the city
+                }
             }
         }
     }
@@ -855,7 +1263,19 @@ function exif_harvester_get_state($path) {
         return null; // File does not exist
     }
 
-    // Attempt to parse IPTC metadata from the file directly
+    // Check if file is WebP - extract from XMP
+    $is_webp = (strtolower(pathinfo($path, PATHINFO_EXTENSION)) === 'webp');
+    
+    if ($is_webp) {
+        // Extract state from XMP in WebP
+        $xmp_data = exif_harvester_extract_xmp_from_webp($path);
+        if ($xmp_data && isset($xmp_data['IPTC_State'])) {
+            return $xmp_data['IPTC_State'];
+        }
+        return null;
+    }
+
+    // Attempt to parse IPTC metadata from the file directly for JPEG
     $iptc = iptcparse(file_get_contents($path));
 
     // Check for '2#095' (Region/State) tag in IPTC metadata
@@ -887,7 +1307,19 @@ function exif_harvester_get_country($path) {
         return null; // File does not exist
     }
 
-    // Attempt to parse IPTC metadata directly
+    // Check if file is WebP - extract from XMP
+    $is_webp = (strtolower(pathinfo($path, PATHINFO_EXTENSION)) === 'webp');
+    
+    if ($is_webp) {
+        // Extract country from XMP in WebP
+        $xmp_data = exif_harvester_extract_xmp_from_webp($path);
+        if ($xmp_data && isset($xmp_data['IPTC_Country'])) {
+            return $xmp_data['IPTC_Country'];
+        }
+        return null;
+    }
+
+    // Attempt to parse IPTC metadata directly for JPEG
     $iptc = iptcparse(file_get_contents($path));
 
     // Check for '2#101' (Country/Primary Location Name) tag
