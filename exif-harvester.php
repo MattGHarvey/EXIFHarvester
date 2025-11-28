@@ -1238,11 +1238,25 @@ class EXIFHarvester {
             
             $post_ids = array_map('intval', $_POST['post']);
             $processed = 0;
+            $weather_enabled = $this->settings['weather_api_enabled'] && !empty($this->settings['pirate_weather_api_key']);
+            $weather_errors = array();
             
             foreach ($post_ids as $post_id) {
                 $post = get_post($post_id);
                 if ($post) {
                     $this->process_post_exif($post_id, $post, true, null, true);
+                    
+                    if ($weather_enabled) {
+                        try {
+                            $weather_error = $this->process_weather_data_sync($post_id);
+                            if ($weather_error) {
+                                $weather_errors[$post_id] = $weather_error;
+                            }
+                        } catch (Exception $e) {
+                            $weather_errors[$post_id] = $e->getMessage();
+                        }
+                    }
+                    
                     $processed++;
                 }
             }
@@ -1250,6 +1264,24 @@ class EXIFHarvester {
             echo '<div class="notice notice-success"><p>' . 
                  sprintf(__('Processed EXIF data for %d posts.', 'exif-harvester'), $processed) . 
                  '</p></div>';
+            
+            if ($weather_enabled) {
+                if (empty($weather_errors)) {
+                    echo '<div class="notice notice-success"><p>' . 
+                         sprintf(__('Weather data refreshed for %d posts.', 'exif-harvester'), $processed) . 
+                         '</p></div>';
+                } else {
+                    $error_items = '';
+                    foreach ($weather_errors as $failed_post_id => $message) {
+                        $error_items .= '<li>' . sprintf(
+                            __('Post %d: %s', 'exif-harvester'),
+                            $failed_post_id,
+                            esc_html($message)
+                        ) . '</li>';
+                    }
+                    echo '<div class="notice notice-warning"><p>' . __('EXIF refreshed, but weather failed for some posts:', 'exif-harvester') . '</p><ul>' . $error_items . '</ul></div>';
+                }
+            }
         }
         
         // Create and display the table
