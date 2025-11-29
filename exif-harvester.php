@@ -181,6 +181,9 @@ class EXIFHarvester {
         add_action('admin_init', array($this, 'admin_init'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
         
+        // Screen options
+        add_filter('set-screen-option', array($this, 'set_screen_option'), 10, 3);
+        
         // Metabox hooks
         add_action('add_meta_boxes', array($this, 'add_exif_metabox'));
         add_action('add_meta_boxes', array($this, 'add_seo_metabox'));
@@ -788,7 +791,7 @@ class EXIFHarvester {
         );
         
         // EXIF Data Overview submenu
-        add_submenu_page(
+        $overview_hook = add_submenu_page(
             'exif-harvester',
             __('EXIF Data Overview', 'exif-harvester'),
             __('Data Overview', 'exif-harvester'),
@@ -797,8 +800,32 @@ class EXIFHarvester {
             array($this, 'exif_data_overview_page')
         );
         
+        // Add screen options on page load
+        add_action("load-{$overview_hook}", array($this, 'add_overview_screen_options'));
+        
         // Enqueue admin scripts
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
+    }
+    
+    /**
+     * Add screen options for the EXIF Data Overview page
+     */
+    public function add_overview_screen_options() {
+        add_screen_option('per_page', array(
+            'label' => __('Posts per page', 'exif-harvester'),
+            'default' => 20,
+            'option' => 'exif_posts_per_page'
+        ));
+    }
+    
+    /**
+     * Save screen options
+     */
+    public function set_screen_option($status, $option, $value) {
+        if ('exif_posts_per_page' === $option) {
+            return $value;
+        }
+        return $status;
     }
     
     /**
