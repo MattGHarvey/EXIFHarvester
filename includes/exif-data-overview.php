@@ -439,7 +439,7 @@ class EXIF_Data_Overview_List_Table extends WP_List_Table {
         if ($which === 'top') {
             ?>
             <div class="alignleft actions">
-                <select name="filter_missing">
+                <select name="filter_missing" id="filter_missing">
                     <option value=""><?php _e('Show All Posts', 'exif-harvester'); ?></option>
                     <option value="camera" <?php selected(isset($_REQUEST['filter_missing']) && $_REQUEST['filter_missing'] === 'camera'); ?>><?php _e('Missing Camera Data', 'exif-harvester'); ?></option>
                     <option value="lens" <?php selected(isset($_REQUEST['filter_missing']) && $_REQUEST['filter_missing'] === 'lens'); ?>><?php _e('Missing Lens Data', 'exif-harvester'); ?></option>

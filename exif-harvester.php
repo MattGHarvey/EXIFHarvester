@@ -1394,12 +1394,20 @@ class EXIFHarvester {
                 </div>
             </div>
             
-            <form method="post" id="exif-overview-form">
+            <form method="get" id="exif-overview-form">
+                <input type="hidden" name="page" value="exif-harvester-overview" />
                 <?php
                 $list_table->search_box(__('Search posts', 'exif-harvester'), 'post');
                 $list_table->display();
-                wp_nonce_field('bulk-posts');
                 ?>
+            </form>
+            
+            <!-- Separate form for bulk actions that need POST -->
+            <form method="post" id="exif-bulk-action-form" style="display:none;">
+                <?php wp_nonce_field('bulk-posts'); ?>
+                <input type="hidden" name="action" id="bulk-action-input" value="" />
+                <input type="hidden" name="post" id="bulk-post-ids" value="" />
+            </form>
             </form>
             
             <style>
@@ -1586,31 +1594,50 @@ class EXIFHarvester {
                     });
                 });
                 
-                // Handle filter changes
-                $('select[name="filter_missing"]').on('change', function() {
-                    $('#post-query-submit').click();
+                // Handle filter changes - submit the form to update URL
+                $('#filter_missing').on('change', function() {
+                    $('#exif-overview-form').submit();
                 });
                 
-                // Handle bulk actions
+                // Handle bulk actions - intercept and use POST form
                 $('#doaction, #doaction2').on('click', function(e) {
-                    var action = $(this).siblings('select').val();
-                    var selected = $('input[name="post[]"]:checked').length;
+                    var actionSelect = $(this).siblings('select[name="action"], select[name="action2"]');
+                    var action = actionSelect.val();
+                    var selected = $('input[name="post[]"]:checked');
                     
                     if (action === 'refresh_exif') {
-                        if (selected === 0) {
+                        e.preventDefault();
+                        
+                        if (selected.length === 0) {
                             alert('<?php _e('Please select posts to refresh.', 'exif-harvester'); ?>');
-                            e.preventDefault();
                             return false;
                         }
                         
                         if (!confirm('<?php _e('Are you sure you want to refresh EXIF data for the selected posts? This may take a while.', 'exif-harvester'); ?>')) {
-                            e.preventDefault();
                             return false;
                         }
+                        
+                        // Collect selected post IDs
+                        var postIds = [];
+                        selected.each(function() {
+                            postIds.push($(this).val());
+                        });
+                        
+                        // Set up the POST form
+                        $('#bulk-action-input').val('refresh_exif');
+                        
+                        // Add post IDs as separate inputs
+                        $('#bulk-post-ids').remove();
+                        postIds.forEach(function(id) {
+                            $('#exif-bulk-action-form').append('<input type="hidden" name="post[]" value="' + id + '" />');
+                        });
                         
                         // Show processing notice
                         var notice = $('<div class="exif-overview-notice info"><?php _e('Processing EXIF data for selected posts. Please wait...', 'exif-harvester'); ?></div>');
                         $('#exif-overview-form').prepend(notice);
+                        
+                        // Submit the POST form
+                        $('#exif-bulk-action-form').submit();
                     }
                 });
                 
