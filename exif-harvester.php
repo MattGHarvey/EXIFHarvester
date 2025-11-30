@@ -1268,24 +1268,18 @@ class EXIFHarvester {
             $weather_enabled = $this->settings['weather_api_enabled'] && !empty($this->settings['pirate_weather_api_key']);
             $weather_errors = array();
             
+            // First pass: Process EXIF data for all posts
             foreach ($post_ids as $post_id) {
                 $post = get_post($post_id);
                 if ($post) {
                     $this->process_post_exif($post_id, $post, true, null, true);
-                    
-                    if ($weather_enabled) {
-                        try {
-                            $weather_error = $this->process_weather_data_sync($post_id);
-                            if ($weather_error) {
-                                $weather_errors[$post_id] = $weather_error;
-                            }
-                        } catch (Exception $e) {
-                            $weather_errors[$post_id] = $e->getMessage();
-                        }
-                    }
-                    
                     $processed++;
                 }
+            }
+            
+            // Second pass: Batch process weather data in parallel if enabled
+            if ($weather_enabled) {
+                $weather_errors = $this->batch_process_weather_data($post_ids);
             }
             
             echo '<div class="notice notice-success"><p>' . 
@@ -3546,6 +3540,210 @@ class EXIFHarvester {
         
         // Now process weather data immediately (this is usually called from manual actions)
         $this->process_weather_data($post_id, true);
+    }
+    
+    /**
+     * Batch process weather data for multiple posts in parallel using cURL multi
+     * 
+     * @param array $post_ids Array of post IDs to process
+     * @return array Array of errors keyed by post_id (empty if all successful)
+     */
+    private function batch_process_weather_data($post_ids) {
+        $errors = array();
+        $weather_requests = array();
+        
+        // Prepare all weather requests
+        foreach ($post_ids as $post_id) {
+            // Clear existing weather data
+            delete_post_meta($post_id, 'wXSummary');
+            delete_post_meta($post_id, 'temperature');
+            delete_post_meta($post_id, '_weather_last_attempt');
+            delete_post_meta($post_id, '_weather_last_failure');
+            delete_post_meta($post_id, '_weather_gps_used');
+            delete_post_meta($post_id, '_weather_datetime_used');
+            
+            // Get required data
+            $gps_coords = get_post_meta($post_id, 'GPS', true);
+            $unix_time = get_post_meta($post_id, 'unixTime', true);
+            $datetime_original = get_post_meta($post_id, 'dateTimeOriginal', true);
+            $gmt_offset = get_post_meta($post_id, 'gmtOffset', true);
+            
+            // Validate data
+            if (empty($gps_coords)) {
+                $errors[$post_id] = 'No GPS coordinates';
+                continue;
+            }
+            
+            if (empty($unix_time)) {
+                $errors[$post_id] = 'No timestamp';
+                continue;
+            }
+            
+            // Parse coordinates
+            $coords = explode(',', $gps_coords);
+            if (count($coords) !== 2) {
+                $errors[$post_id] = 'Invalid GPS format';
+                continue;
+            }
+            
+            $lat = (float) trim($coords[0]);
+            $lon = (float) trim($coords[1]);
+            
+            if ($lat == 0 || $lon == 0) {
+                $errors[$post_id] = 'Invalid GPS coordinates';
+                continue;
+            }
+            
+            // Convert to GMT if we have offset
+            $gmt_time = $unix_time;
+            if ($gmt_offset !== null && $gmt_offset !== '') {
+                $gmt_time = exif_harvester_convert_to_gmt($unix_time, $gmt_offset);
+            }
+            
+            // Build API URLs
+            $api_key = $this->settings['pirate_weather_api_key'];
+            $urls = array(
+                'https://timemachine.pirateweather.net/forecast/' . $api_key . '/' . $lat . ',' . $lon . ',' . $gmt_time . '?exclude=minutely,hourly,daily,alerts',
+                'https://api.pirateweather.net/forecast/' . $api_key . '/' . $lat . ',' . $lon . ',' . $gmt_time . '?exclude=minutely,hourly,daily,alerts'
+            );
+            
+            update_post_meta($post_id, '_weather_api_urls', $urls);
+            
+            $weather_requests[$post_id] = array(
+                'urls' => $urls,
+                'gps_coords' => $gps_coords,
+                'datetime_original' => $datetime_original,
+                'lat' => $lat,
+                'lon' => $lon,
+                'time' => $gmt_time
+            );
+        }
+        
+        // Execute all requests in parallel using cURL multi
+        if (!empty($weather_requests)) {
+            $results = $this->execute_parallel_weather_requests($weather_requests);
+            
+            // Process results
+            foreach ($results as $post_id => $result) {
+                update_post_meta($post_id, '_weather_last_attempt', time());
+                
+                if ($result['success']) {
+                    // Store weather data
+                    exif_harvester_add_or_update_wx_summary($result['summary'], $post_id);
+                    exif_harvester_add_or_update_temperature($result['temp_celsius'], $post_id);
+                    update_post_meta($post_id, '_weather_gps_used', $weather_requests[$post_id]['gps_coords']);
+                    update_post_meta($post_id, '_weather_datetime_used', $weather_requests[$post_id]['datetime_original']);
+                    update_post_meta($post_id, '_weather_last_success', time());
+                } else {
+                    update_post_meta($post_id, '_weather_last_failure', time());
+                    $errors[$post_id] = $result['error'];
+                }
+            }
+        }
+        
+        return $errors;
+    }
+    
+    /**
+     * Execute multiple weather API requests in parallel using cURL multi-handle
+     * 
+     * @param array $requests Array of requests keyed by post_id
+     * @return array Results keyed by post_id with 'success', 'summary', 'temp_celsius', or 'error'
+     */
+    private function execute_parallel_weather_requests($requests) {
+        $results = array();
+        $curl_handles = array();
+        $multi_handle = curl_multi_init();
+        
+        // Initialize all cURL handles
+        foreach ($requests as $post_id => $request) {
+            // Try first URL (timemachine endpoint)
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $request['urls'][0]);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+            curl_setopt($ch, CURLOPT_USERAGENT, 'EXIF Harvester WordPress Plugin/1.0.0');
+            
+            curl_multi_add_handle($multi_handle, $ch);
+            $curl_handles[$post_id] = array(
+                'handle' => $ch,
+                'request' => $request,
+                'url_index' => 0
+            );
+        }
+        
+        // Execute all requests
+        $running = null;
+        do {
+            curl_multi_exec($multi_handle, $running);
+            curl_multi_select($multi_handle, 0.1);
+        } while ($running > 0);
+        
+        // Process results
+        foreach ($curl_handles as $post_id => $data) {
+            $ch = $data['handle'];
+            $request = $data['request'];
+            
+            $response = curl_multi_getcontent($ch);
+            $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            
+            curl_multi_remove_handle($multi_handle, $ch);
+            curl_close($ch);
+            
+            // Parse response
+            $success = false;
+            if ($response && $http_code >= 200 && $http_code < 300) {
+                $weather_data = json_decode($response);
+                if ($weather_data && isset($weather_data->currently)) {
+                    $success = true;
+                    $results[$post_id] = array(
+                        'success' => true,
+                        'summary' => $weather_data->currently->summary,
+                        'temp_celsius' => exif_harvester_fahrenheit_to_celsius($weather_data->currently->temperature)
+                    );
+                }
+            }
+            
+            // If first endpoint failed, try fallback endpoint sequentially
+            if (!$success && isset($request['urls'][1])) {
+                $ch_fallback = curl_init();
+                curl_setopt($ch_fallback, CURLOPT_URL, $request['urls'][1]);
+                curl_setopt($ch_fallback, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($ch_fallback, CURLOPT_FOLLOWLOCATION, true);
+                curl_setopt($ch_fallback, CURLOPT_TIMEOUT, 30);
+                curl_setopt($ch_fallback, CURLOPT_CONNECTTIMEOUT, 10);
+                curl_setopt($ch_fallback, CURLOPT_USERAGENT, 'EXIF Harvester WordPress Plugin/1.0.0');
+                
+                $response = curl_exec($ch_fallback);
+                $http_code = curl_getinfo($ch_fallback, CURLINFO_HTTP_CODE);
+                curl_close($ch_fallback);
+                
+                if ($response && $http_code >= 200 && $http_code < 300) {
+                    $weather_data = json_decode($response);
+                    if ($weather_data && isset($weather_data->currently)) {
+                        $success = true;
+                        $results[$post_id] = array(
+                            'success' => true,
+                            'summary' => $weather_data->currently->summary,
+                            'temp_celsius' => exif_harvester_fahrenheit_to_celsius($weather_data->currently->temperature)
+                        );
+                    }
+                }
+            }
+            
+            if (!$success) {
+                $results[$post_id] = array(
+                    'success' => false,
+                    'error' => 'Failed to retrieve weather data from API'
+                );
+            }
+        }
+        
+        curl_multi_close($multi_handle);
+        
+        return $results;
     }
     
     /**
